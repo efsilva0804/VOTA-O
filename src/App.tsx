@@ -5,6 +5,7 @@ import { Navbar } from './components/Navbar.tsx';
 import { VotingGallery } from './components/VotingGallery.tsx';
 import { LiveStage } from './components/LiveStage.tsx';
 import { AdminPanel } from './components/AdminPanel.tsx';
+import { ResultsView } from './components/ResultsView.tsx';
 import { PhotoDetailModal } from './components/PhotoDetailModal.tsx';
 import { VoteConfirmModal } from './components/VoteConfirmModal.tsx';
 import { QRCodeModal } from './components/QRCodeModal.tsx';
@@ -37,10 +38,13 @@ export default function App() {
     resetVotes,
     restoreDemo,
     simulateVote,
+    restoreBackup,
+    downloadBackup,
+    downloadCsv,
   } = useContest();
 
   // Navigation tab state
-  const [currentTab, setCurrentTab] = useState<'gallery' | 'stage' | 'admin'>('gallery');
+  const [currentTab, setCurrentTab] = useState<'gallery' | 'stage' | 'results' | 'admin'>('gallery');
 
   // Modals
   const [selectedPhotoForDetail, setSelectedPhotoForDetail] = useState<PhotoEntry | null>(null);
@@ -50,7 +54,7 @@ export default function App() {
   const [targetPhotoForQr, setTargetPhotoForQr] = useState<PhotoEntry | null>(null);
   const [targetPhotoForUpload, setTargetPhotoForUpload] = useState<PhotoEntry | null>(null);
 
-  // Read URL query parameter on mount (e.g. ?mode=stage, ?mode=vote, or ?voteFor=desenho-1)
+  // Read URL query parameter on mount (e.g. ?mode=stage, ?mode=vote, ?mode=results, or ?voteFor=desenho-1)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -59,6 +63,8 @@ export default function App() {
         setCurrentTab('stage');
       } else if (mode === 'vote' || mode === 'galeria') {
         setCurrentTab('gallery');
+      } else if (mode === 'results' || mode === 'resultado' || mode === 'apuracao') {
+        setCurrentTab('results');
       } else if (mode === 'admin') {
         setCurrentTab('admin');
       }
@@ -237,6 +243,17 @@ export default function App() {
           />
         )}
 
+        {currentTab === 'results' && (
+          <ResultsView
+            data={contestData}
+            onSelectPhoto={(photo) => setSelectedPhotoForDetail(photo)}
+            onUpdateSettings={updateSettings}
+            onRestoreBackup={restoreBackup}
+            onDownloadBackup={downloadBackup}
+            onDownloadCsv={downloadCsv}
+          />
+        )}
+
         {currentTab === 'admin' && (
           <AdminPanel
             data={contestData}
@@ -250,6 +267,10 @@ export default function App() {
               setTargetPhotoForUpload(null);
               setIsUploaderOpen(true);
             }}
+            onViewResults={() => setCurrentTab('results')}
+            onRestoreBackup={restoreBackup}
+            onDownloadBackup={downloadBackup}
+            onDownloadCsv={downloadCsv}
           />
         )}
       </main>

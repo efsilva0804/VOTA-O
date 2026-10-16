@@ -1,9 +1,9 @@
 import React from 'react';
-import { Palette, Tv, Sliders, QrCode, CheckCircle2, Sparkles, Heart, Trophy, Upload } from 'lucide-react';
+import { Palette, Tv, Sliders, QrCode, CheckCircle2, Sparkles, Heart, Trophy, Upload, Award } from 'lucide-react';
 
 interface NavbarProps {
-  currentTab: 'gallery' | 'stage' | 'admin';
-  onChangeTab: (tab: 'gallery' | 'stage' | 'admin') => void;
+  currentTab: 'gallery' | 'stage' | 'results' | 'admin';
+  onChangeTab: (tab: 'gallery' | 'stage' | 'results' | 'admin') => void;
   onOpenQrModal: () => void;
   onOpenInsertModal?: () => void;
   hasVoted: boolean;
@@ -73,6 +73,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Tv className="w-4 h-4 text-emerald-400" />
               <span>Telão</span>
+            </button>
+
+            <button
+              onClick={() => onChangeTab('results')}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                currentTab === 'results'
+                  ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Award className="w-4 h-4 text-amber-400" />
+              <span>Resultados</span>
             </button>
 
             <button

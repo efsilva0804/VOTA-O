@@ -113,6 +113,8 @@ const DATA_FILE = path.join(__dirname, 'contest-state.json');
 function saveStateToDisk() {
   try {
     const data = {
+      version: 1,
+      lastSaved: new Date().toISOString(),
       photos,
       votes,
       recentVotes,
@@ -130,7 +132,6 @@ function loadStateFromDisk() {
       const raw = fs.readFileSync(DATA_FILE, 'utf-8');
       const data = JSON.parse(raw);
       if (Array.isArray(data.photos) && data.photos.length > 0) {
-        // Keep updated titles/images/photographers from user uploads
         photos = data.photos;
       }
       if (Array.isArray(data.votes)) {
@@ -142,22 +143,15 @@ function loadStateFromDisk() {
       if (data.contestSettings) {
         contestSettings = { ...contestSettings, ...data.contestSettings };
       }
+      console.log(`[Persistence] Loaded ${photos.length} photos and ${votes.length} votes from disk.`);
     }
   } catch (e) {
     console.error('Error loading state from disk:', e);
   }
 }
 
-// Load persisted state if exists
+// Load persisted state if exists (resumes exactly from where it stopped)
 loadStateFromDisk();
-
-// Enforce contest starts from scratch (0 votes for all drawings)
-photos.forEach((p) => {
-  p.votes = 0;
-  p.percentage = 0;
-});
-votes = [];
-recentVotes = [];
 
 // Track SSE clients
 const sseClients = new Set<express.Response>();
@@ -179,7 +173,7 @@ function recalculateStats() {
   });
 }
 
-// Initial calculation & persist clean slate
+// Recalculate stats with the loaded persisted data and save
 recalculateStats();
 saveStateToDisk();
 
@@ -534,9 +528,148 @@ app.post('/api/admin/simulate-vote', (req, res) => {
   if (recentVotes.length > 20) recentVotes.pop();
 
   recalculateStats();
+  saveStateToDisk();
   broadcastUpdate();
 
   res.json({ success: true, contestData: getContestData() });
+});
+
+// Full Backup Download / Export Endpoint
+app.get('/api/contest/backup', (_req, res) => {
+  const totalVotes = photos.reduce((sum, p) => sum + p.votes, 0);
+  const backupData = {
+    app: 'DesenhoNazare',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    totalVotes,
+    totalVoters: votes.length > 0 ? votes.length : totalVotes,
+    contestSettings,
+    photos,
+    votes,
+    recentVotes,
+  };
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="backup-concurso-nazare-${new Date().toISOString().slice(0, 10)}.json"`);
+  res.json(backupData);
+});
+
+// Full Backup Restore / Continue From Where It Stopped Endpoint
+app.post('/api/contest/restore', (req, res) => {
+  try {
+    const { photos: restoredPhotos, votes: restoredVotes, contestSettings: restoredSettings, recentVotes: restoredRecent } = req.body;
+
+    if (!Array.isArray(restoredPhotos) || restoredPhotos.length === 0) {
+      return res.status(400).json({ success: false, message: 'Arquivo de backup inválido: nenhuma obra encontrada.' });
+    }
+
+    photos = restoredPhotos.map((p: PhotoEntry, idx: number) => ({
+      id: p.id || `desenho-${idx + 1}`,
+      title: p.title || `Desenho ${idx + 1}`,
+      photographer: p.photographer || 'Artista',
+      category: p.category || 'Arte Sacra',
+      description: p.description || '',
+      imageUrl: p.imageUrl,
+      cameraInfo: p.cameraInfo,
+      votes: typeof p.votes === 'number' ? p.votes : 0,
+      percentage: typeof p.percentage === 'number' ? p.percentage : 0,
+      rank: p.rank || idx + 1,
+      createdAt: p.createdAt || new Date().toISOString(),
+    }));
+
+    if (Array.isArray(restoredVotes)) {
+      votes = restoredVotes;
+    }
+
+    if (Array.isArray(restoredRecent)) {
+      recentVotes = restoredRecent;
+    } else {
+      recentVotes = [];
+    }
+
+    if (restoredSettings && typeof restoredSettings === 'object') {
+      contestSettings = {
+        ...contestSettings,
+        ...restoredSettings,
+      };
+    }
+
+    recalculateStats();
+    saveStateToDisk();
+    broadcastUpdate();
+
+    return res.json({
+      success: true,
+      message: `Backup restaurado com sucesso! Carregadas ${photos.length} obras e ${votes.length} votos. Continuando de onde parou.`,
+      contestData: getContestData(),
+    });
+  } catch (err) {
+    console.error('Error restoring backup:', err);
+    return res.status(500).json({ success: false, message: 'Falha ao restaurar o backup.' });
+  }
+});
+
+// Official Results Data Endpoint
+app.get('/api/contest/results', (_req, res) => {
+  const totalVotes = photos.reduce((sum, p) => sum + p.votes, 0);
+  const winner = photos.length > 0 && photos[0].votes > 0 ? photos[0] : null;
+
+  const votesLog = votes.map((v) => {
+    const photo = photos.find((p) => p.id === v.photoId);
+    return {
+      id: v.id,
+      photoId: v.photoId,
+      photoTitle: photo?.title || 'Desenho',
+      photographer: photo?.photographer || 'Artista',
+      category: photo?.category || 'Geral',
+      voterName: v.voterName || 'Eleitor Anônimo',
+      timestamp: v.timestamp,
+      dateString: new Date(v.timestamp).toLocaleString('pt-BR'),
+    };
+  });
+
+  res.json({
+    success: true,
+    contest: contestSettings,
+    photos: photos.map((p) => ({ ...p })),
+    totalVotes,
+    totalVoters: votes.length > 0 ? votes.length : totalVotes,
+    winner,
+    votesLog,
+    generatedAt: new Date().toISOString(),
+  });
+});
+
+// Export CSV Endpoint for spreadsheet audit
+app.get('/api/contest/export-csv', (_req, res) => {
+  const totalVotes = photos.reduce((sum, p) => sum + p.votes, 0);
+
+  let csv = '\uFEFF'; // UTF-8 BOM for Microsoft Excel
+
+  // Header
+  csv += `"RELATÓRIO OFICIAL DE APURAÇÃO - CONCURSO DE DESENHO DE NOSSA SENHORA DE NAZARÉ"\n`;
+  csv += `"Data de Emissão";"${new Date().toLocaleString('pt-BR')}"\n`;
+  csv += `"Status do Concurso";"${contestSettings.status === 'active' ? 'Ativo / Em Andamento' : contestSettings.status === 'paused' ? 'Pausado' : 'Encerrado'}"\n`;
+  csv += `"Total Geral de Votos";"${totalVotes}"\n`;
+  csv += `"Total de Eleitores";"${votes.length > 0 ? votes.length : totalVotes}"\n\n`;
+
+  // Classification Table
+  csv += `"CLASSIFICAÇÃO GERAL DAS OBRAS"\n`;
+  csv += `"Posição";"Título da Obra";"Artista / Candidato";"Categoria / Técnica";"Votos";"Percentual"\n`;
+  photos.forEach((p) => {
+    csv += `"${p.rank}º Lugar";"${p.title.replace(/"/g, '""')}";"${p.photographer.replace(/"/g, '""')}";"${p.category.replace(/"/g, '""')}";"${p.votes}";"${p.percentage}%"\n`;
+  });
+
+  csv += `\n"REGISTRO DETALHADO DOS VOTOS COMPUTADOS (AUDITORIA)"\n`;
+  csv += `"Nº";"Data e Hora";"Nome do Eleitor";"Obra Votada";"Artista";"ID do Voto"\n`;
+  votes.forEach((v, index) => {
+    const photo = photos.find((p) => p.id === v.photoId);
+    const dateStr = new Date(v.timestamp).toLocaleString('pt-BR');
+    csv += `"${index + 1}";"${dateStr}";"${(v.voterName || 'Eleitor Anônimo').replace(/"/g, '""')}";"${(photo?.title || v.photoId).replace(/"/g, '""')}";"${(photo?.photographer || '').replace(/"/g, '""')}";"${v.id}"\n`;
+  });
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="apuracao-votos-nazare-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(csv);
 });
 
 // Configure Vite or Static files

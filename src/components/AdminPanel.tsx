@@ -13,7 +13,14 @@ import {
   Sliders,
   ShieldCheck,
   Award,
-  Upload
+  Upload,
+  Download,
+  FileSpreadsheet,
+  HardDrive,
+  RefreshCw,
+  FolderArchive,
+  FileText,
+  CheckCircle2
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -32,6 +39,10 @@ interface AdminPanelProps {
   onRestoreDemo: () => Promise<{ success: boolean }>;
   onSimulateVote: () => void;
   onOpenUploadModal?: () => void;
+  onViewResults?: () => void;
+  onRestoreBackup?: (backup: any) => Promise<{ success: boolean; message: string }>;
+  onDownloadBackup?: () => void;
+  onDownloadCsv?: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -43,11 +54,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onRestoreDemo,
   onSimulateVote,
   onOpenUploadModal,
+  onViewResults,
+  onRestoreBackup,
+  onDownloadBackup,
+  onDownloadCsv,
 }) => {
-  const [activeTab, setActiveTab] = useState<'photos' | 'settings' | 'demo'>('photos');
+  const [activeTab, setActiveTab] = useState<'photos' | 'settings' | 'backup' | 'demo'>('photos');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSimulatingLoop, setIsSimulatingLoop] = useState(false);
   const [simulationInterval, setSimulationInterval] = useState<ReturnType<typeof setInterval> | null>(null);
+  const [backupMsg, setBackupMsg] = useState<{ text: string; success: boolean } | null>(null);
+  const adminFileInputRef = React.useRef<HTMLInputElement>(null);
 
   // New photo form state
   const [title, setTitle] = useState('');
@@ -179,6 +196,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             }`}
           >
             Regras da Exposição
+          </button>
+          <button
+            onClick={() => setActiveTab('backup')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'backup'
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Resultados & Backup Local
           </button>
           <button
             onClick={() => setActiveTab('demo')}
@@ -585,6 +612,182 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 Restaurar Fotos de Exemplo
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden file input for admin backup restore */}
+      <input
+        ref={adminFileInputRef}
+        type="file"
+        accept=".json"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (!file || !onRestoreBackup) return;
+          try {
+            const text = await file.text();
+            const parsed = JSON.parse(text);
+            const res = await onRestoreBackup(parsed);
+            setBackupMsg({ text: res.message, success: res.success });
+          } catch (err: any) {
+            setBackupMsg({ text: 'Falha ao restaurar backup: ' + (err?.message || 'erro no arquivo'), success: false });
+          } finally {
+            if (adminFileInputRef.current) adminFileInputRef.current.value = '';
+            setTimeout(() => setBackupMsg(null), 6000);
+          }
+        }}
+        className="hidden"
+      />
+
+      {/* TAB: Resultados & Backup Local (Continuar de Onde Parou) */}
+      {activeTab === 'backup' && (
+        <div className="max-w-4xl bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
+          <div>
+            <h3 className="text-xl font-bold text-white flex items-center gap-2.5">
+              <HardDrive className="w-6 h-6 text-emerald-400" />
+              Salvar Localmente os Votos & Continuar de Onde Parou
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-400 mt-1">
+              Todos os votos, cadastros de obras e alterações são salvos automaticamente no servidor (disco) e no navegador. Você pode fechar o aplicativo ou pausar o evento a qualquer momento e continuar exatamente de onde parou.
+            </p>
+          </div>
+
+          {backupMsg && (
+            <div
+              className={`p-4 rounded-2xl border flex items-center justify-between text-xs sm:text-sm font-semibold ${
+                backupMsg.success
+                  ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                  : 'bg-rose-950/80 border-rose-500/50 text-rose-300'
+              }`}
+            >
+              <span>{backupMsg.text}</span>
+              <button onClick={() => setBackupMsg(null)} className="text-xs px-2 py-0.5 rounded bg-black/40">OK</button>
+            </div>
+          )}
+
+          {/* Status Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+              <div className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                Persistência em Disco
+              </div>
+              <div className="text-base font-black text-white font-mono">contest-state.json</div>
+              <div className="text-[11px] text-emerald-400">Gravado automaticamente a cada voto</div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+              <div className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                <Award className="w-4 h-4 text-amber-400" />
+                Votos Computados
+              </div>
+              <div className="text-base font-black text-white font-mono">{data?.totalVotes || 0} votos</div>
+              <div className="text-[11px] text-slate-400">{photos.length} desenhos no concurso</div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+              <div className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                Segurança dos Dados
+              </div>
+              <div className="text-base font-black text-white">100% Auditável</div>
+              <div className="text-[11px] text-slate-400">Protegido contra reinicializações</div>
+            </div>
+          </div>
+
+          {/* Action Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            {/* View Official Results */}
+            {onViewResults && (
+              <div className="p-5 rounded-2xl bg-slate-950/80 border border-amber-500/30 flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                    <Award className="w-5 h-5" />
+                    Exibir Resultados & Apuração Oficial
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Visualizar pódio, classificação geral detalhada com percentuais e imprimir ata oficial com assinaturas.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onViewResults}
+                  className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow transition-all"
+                >
+                  <Award className="w-4 h-4" />
+                  Abrir Tela de Resultados
+                </button>
+              </div>
+            )}
+
+            {/* Download JSON Backup */}
+            {onDownloadBackup && (
+              <div className="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center gap-2 text-cyan-400 font-bold text-sm">
+                    <Download className="w-5 h-5" />
+                    Salvar Backup Completo (JSON)
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Baixar arquivo compactado com todas as fotos cadastradas, votos, eleitores e configurações do concurso.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onDownloadBackup}
+                  className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  Baixar Arquivo de Backup
+                </button>
+              </div>
+            )}
+
+            {/* Restore / Resume from where it stopped */}
+            {onRestoreBackup && (
+              <div className="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                    <Upload className="w-5 h-5" />
+                    Importar Backup / Continuar de Onde Parou
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Subir arquivo JSON de backup salvo anteriormente para restaurar a votação e retomar sem perdas.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => adminFileInputRef.current?.click()}
+                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow transition-all"
+                >
+                  <Upload className="w-4 h-4" />
+                  Selecionar Arquivo de Backup (JSON)
+                </button>
+              </div>
+            )}
+
+            {/* Download CSV */}
+            {onDownloadCsv && (
+              <div className="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                    <FileSpreadsheet className="w-5 h-5" />
+                    Exportar Planilha de Votos (CSV)
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Planilha compatível com Excel e Google Sheets para auditoria minuciosa e arquivo permanente.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onDownloadCsv}
+                  className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-colors"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Baixar Planilha de Votos (CSV)
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

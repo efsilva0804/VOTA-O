@@ -221,6 +221,53 @@ export function useContest() {
     return json;
   };
 
+  // Restore backup from JSON (resumes state exactly from where it stopped)
+  const restoreBackup = async (backupPayload: any) => {
+    try {
+      const res = await fetch('/api/contest/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(backupPayload),
+      });
+      const json = await res.json();
+      if (json.contestData) {
+        setData(json.contestData);
+      }
+      return json;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Falha na conexão ao restaurar backup.' };
+    }
+  };
+
+  // Trigger JSON backup file download
+  const downloadBackup = () => {
+    window.location.href = '/api/contest/backup';
+  };
+
+  // Trigger CSV votes audit spreadsheet download
+  const downloadCsv = () => {
+    window.location.href = '/api/contest/export-csv';
+  };
+
+  // Keep a local copy in browser localStorage for offline/extra safety
+  useEffect(() => {
+    if (data && data.photos && data.photos.length > 0) {
+      try {
+        localStorage.setItem(
+          'contest_local_mirror',
+          JSON.stringify({
+            savedAt: new Date().toISOString(),
+            totalVotes: data.totalVotes,
+            photos: data.photos,
+            contest: data.contest,
+          })
+        );
+      } catch (err) {
+        // ignore quota limits if images are large
+      }
+    }
+  }, [data]);
+
   return {
     contest: data?.contest || null,
     photos: data?.photos || [],
@@ -249,5 +296,8 @@ export function useContest() {
     resetVotes,
     restoreDemo,
     simulateVote,
+    restoreBackup,
+    downloadBackup,
+    downloadCsv,
   };
 }
