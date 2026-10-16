@@ -3,6 +3,7 @@ import confetti from 'canvas-confetti';
 import QRCode from 'qrcode';
 import type { ContestData, PhotoEntry } from '../types/contest.ts';
 import { playDrumroll, playWinnerFanfare } from '../utils/audio.ts';
+import { getFallbackImageUrl } from '../utils/seedData.ts';
 import {
   Trophy,
   Crown,
@@ -364,6 +365,13 @@ export const LiveStage: React.FC<LiveStageProps> = ({
                             src={photo.imageUrl}
                             alt={photo.title}
                             className="w-full h-full object-cover"
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              if (!target.dataset.triedFallback) {
+                                target.dataset.triedFallback = '1';
+                                target.src = getFallbackImageUrl(photo.id, photo.imageUrl);
+                              }
+                            }}
                           />
                         </div>
 
@@ -420,7 +428,18 @@ export const LiveStage: React.FC<LiveStageProps> = ({
                     className="flex flex-col items-center cursor-pointer group"
                   >
                     <div className="relative mb-3 w-28 sm:w-44 aspect-square rounded-2xl overflow-hidden border-2 border-slate-300 shadow-xl group-hover:scale-105 transition-all">
-                      <img src={second.imageUrl} alt={second.title} className="w-full h-full object-cover" />
+                      <img
+                        src={second.imageUrl}
+                        alt={second.title}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          if (!target.dataset.triedFallback) {
+                            target.dataset.triedFallback = '1';
+                            target.src = getFallbackImageUrl(second.id, second.imageUrl);
+                          }
+                        }}
+                      />
                       <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-slate-300 text-slate-950 font-black text-xs">
                         2º Lugar
                       </div>
@@ -444,7 +463,18 @@ export const LiveStage: React.FC<LiveStageProps> = ({
                     className="flex flex-col items-center cursor-pointer group"
                   >
                     <div className="relative mb-3 w-32 sm:w-52 aspect-square rounded-2xl overflow-hidden border-4 border-amber-400 shadow-2xl shadow-amber-500/30 group-hover:scale-105 transition-all">
-                      <img src={first.imageUrl} alt={first.title} className="w-full h-full object-cover" />
+                      <img
+                        src={first.imageUrl}
+                        alt={first.title}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          if (!target.dataset.triedFallback) {
+                            target.dataset.triedFallback = '1';
+                            target.src = getFallbackImageUrl(first.id, first.imageUrl);
+                          }
+                        }}
+                      />
                       <div className="absolute top-2 left-2 px-2.5 py-1 rounded-xl bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow">
                         <Crown className="w-3.5 h-3.5" /> {first.votes > 0 ? '1º Campeão' : 'Obra 01'}
                       </div>
@@ -469,7 +499,18 @@ export const LiveStage: React.FC<LiveStageProps> = ({
                     className="flex flex-col items-center cursor-pointer group"
                   >
                     <div className="relative mb-3 w-28 sm:w-44 aspect-square rounded-2xl overflow-hidden border-2 border-amber-700 shadow-xl group-hover:scale-105 transition-all">
-                      <img src={third.imageUrl} alt={third.title} className="w-full h-full object-cover" />
+                      <img
+                        src={third.imageUrl}
+                        alt={third.title}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          if (!target.dataset.triedFallback) {
+                            target.dataset.triedFallback = '1';
+                            target.src = getFallbackImageUrl(third.id, third.imageUrl);
+                          }
+                        }}
+                      />
                       <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-amber-700 text-amber-100 font-black text-xs">
                         3º Lugar
                       </div>

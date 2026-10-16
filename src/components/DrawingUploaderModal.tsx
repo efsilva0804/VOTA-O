@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { PhotoEntry } from '../types/contest.ts';
 import { Upload, X, Check, Image as ImageIcon, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
+import { compressImageFile } from '../utils/imageOptimizer.ts';
 
 interface DrawingUploaderModalProps {
   isOpen: boolean;
@@ -20,21 +21,22 @@ export const DrawingUploaderModal: React.FC<DrawingUploaderModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleFileSelect = (photoId: string, file: File) => {
+  const handleFileSelect = async (photoId: string, file: File) => {
     if (!file) return;
 
     setUploadingId(photoId);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const base64 = e.target?.result as string;
-      if (base64) {
-        await onUpdatePhoto(photoId, { imageUrl: base64 });
-        setSuccessMsg(`Imagem da obra atualizada com sucesso!`);
+    try {
+      const optimizedBase64 = await compressImageFile(file, 1200, 0.85);
+      if (optimizedBase64) {
+        await onUpdatePhoto(photoId, { imageUrl: optimizedBase64 });
+        setSuccessMsg(`Imagem da obra otimizada e salva com sucesso!`);
         setTimeout(() => setSuccessMsg(null), 3000);
       }
+    } catch (e) {
+      console.error('Error compressing image:', e);
+    } finally {
       setUploadingId(null);
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleBulkUpload = (files: FileList | null) => {

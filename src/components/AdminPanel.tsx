@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { ContestData, PhotoEntry } from '../types/contest.ts';
+import { getFallbackImageUrl } from '../utils/seedData.ts';
 import {
   PlusCircle,
   Trash2,
@@ -428,6 +429,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       src={p.imageUrl}
                       alt={p.title}
                       className="w-14 h-14 rounded-xl object-cover shrink-0 border border-slate-800"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (!target.dataset.triedFallback) {
+                          target.dataset.triedFallback = '1';
+                          target.src = getFallbackImageUrl(p.id, p.imageUrl);
+                        }
+                      }}
                     />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">

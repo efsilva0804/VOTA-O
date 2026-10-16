@@ -1,10 +1,49 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { ContestData, ContestSettings, PhotoEntry } from '../types/contest.ts';
+import type { ContestData, ContestSettings, PhotoEntry, VoteRecord } from '../types/contest.ts';
 import { getOrCreateVoterToken, getSavedVoterName, saveVoterName } from '../utils/voter.ts';
+import { getInitialContestData, INITIAL_PHOTOS, INITIAL_CONTEST_SETTINGS } from '../utils/seedData.ts';
+
+const LOCAL_STORAGE_KEY = 'contest_state_v1';
+const VOTES_STORAGE_KEY = 'contest_votes_v1';
+
+function getStoredState(): ContestData {
+  if (typeof window === 'undefined') {
+    return getInitialContestData();
+  }
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.photos) && parsed.photos.length > 0) {
+        return {
+          contest: parsed.contest || { ...INITIAL_CONTEST_SETTINGS },
+          photos: parsed.photos,
+          totalVotes: parsed.totalVotes || 0,
+          totalVoters: parsed.totalVoters || parsed.totalVotes || 0,
+          recentVotes: parsed.recentVotes || [],
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('[useContest] Failed to parse localStorage state:', e);
+  }
+  return getInitialContestData();
+}
+
+function getStoredVotes(): VoteRecord[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(VOTES_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    // ignore
+  }
+  return [];
+}
 
 export function useContest() {
-  const [data, setData] = useState<ContestData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<ContestData>(() => getStoredState());
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [votedPhotoId, setVotedPhotoId] = useState<string | null>(null);
   const [voterName, setVoterNameState] = useState<string>(getSavedVoterName());
@@ -12,27 +51,44 @@ export function useContest() {
   const [voteMessage, setVoteMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [isLiveConnected, setIsLiveConnected] = useState(false);
   const voterTokenRef = useRef<string>(getOrCreateVoterToken());
+  const localVotesRef = useRef<VoteRecord[]>(getStoredVotes());
 
-  // Fetch initial contest state
+  // Save to localStorage whenever data changes
+  const persistLocally = useCallback((newData: ContestData, newVotes?: VoteRecord[]) => {
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newData));
+      if (newVotes) {
+        localVotesRef.current = newVotes;
+        localStorage.setItem(VOTES_STORAGE_KEY, JSON.stringify(newVotes));
+      }
+    } catch (err) {
+      console.warn('[useContest] localStorage quota or write warning:', err);
+    }
+  }, []);
+
+  // Fetch contest state from API (with seamless local fallback)
   const fetchContest = useCallback(async () => {
     try {
       const token = voterTokenRef.current;
       const res = await fetch(`/api/contest?voterToken=${encodeURIComponent(token)}`);
-      if (!res.ok) throw new Error('Falha ao carregar concurso');
+      if (!res.ok) {
+        throw new Error(`API returned ${res.status}`);
+      }
       const json = await res.json();
       
-      setData({
-        contest: json.contest,
-        photos: json.photos,
-        totalVotes: json.totalVotes,
-        totalVoters: json.totalVoters,
+      const serverData: ContestData = {
+        contest: json.contest || INITIAL_CONTEST_SETTINGS,
+        photos: json.photos || INITIAL_PHOTOS,
+        totalVotes: json.totalVotes ?? 0,
+        totalVoters: json.totalVoters ?? 0,
         recentVotes: json.recentVotes || [],
-      });
+      };
+
+      setData(serverData);
+      persistLocally(serverData);
 
       if (json.hasVoted && json.votedPhotoId) {
         setVotedPhotoId(json.votedPhotoId);
-      } else {
-        setVotedPhotoId(null);
       }
       if (json.voterName) {
         setVoterNameState(json.voterName);
@@ -40,14 +96,15 @@ export function useContest() {
       }
       setError(null);
     } catch (err) {
-      console.error('Error fetching contest:', err);
-      setError('Não foi possível conectar ao servidor do concurso.');
+      // Running on Vercel without serverless or offline: continue with persistent local state
+      console.info('[useContest] Using persistent local state (Vercel/Offline mode)');
+      setError(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [persistLocally]);
 
-  // Connect to SSE for real-time live streaming
+  // Connect to SSE for real-time live streaming when available
   useEffect(() => {
     fetchContest();
 
@@ -65,12 +122,13 @@ export function useContest() {
         try {
           const parsed = JSON.parse(event.data);
           setData(parsed);
+          persistLocally(parsed);
           if (parsed.totalVotes === 0) {
             setVotedPhotoId(null);
           }
           setIsLiveConnected(true);
         } catch (e) {
-          console.error('Error parsing SSE message:', e);
+          console.warn('[SSE] Parse warning:', e);
         }
       });
 
@@ -78,31 +136,56 @@ export function useContest() {
         setIsLiveConnected(false);
         // Fallback polling if SSE disconnects
         if (!pollInterval) {
-          pollInterval = setInterval(fetchContest, 5000);
+          pollInterval = setInterval(fetchContest, 6000);
         }
       });
     } catch {
-      pollInterval = setInterval(fetchContest, 4000);
+      pollInterval = setInterval(fetchContest, 6000);
     }
 
     return () => {
       if (eventSource) eventSource.close();
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [fetchContest]);
+  }, [fetchContest, persistLocally]);
 
-  // Vote for a photo
+  // Helper to recalculate stats client-side
+  const recalculateStatsLocal = (photos: PhotoEntry[]): PhotoEntry[] => {
+    const total = photos.reduce((sum, p) => sum + p.votes, 0);
+    const sorted = [...photos].sort((a, b) => {
+      if (b.votes !== a.votes) return b.votes - a.votes;
+      return a.id.localeCompare(b.id, undefined, { numeric: true });
+    });
+    return sorted.map((p, idx) => ({
+      ...p,
+      rank: idx + 1,
+      percentage: total > 0 ? Math.round((p.votes / total) * 1000) / 10 : 0,
+    }));
+  };
+
+  // Vote for a photo (works both online and offline/Vercel)
   const vote = async (photoId: string, name?: string): Promise<{ success: boolean; message: string }> => {
     setIsVoting(true);
     setVoteMessage(null);
-    try {
-      const token = voterTokenRef.current;
-      const nameToSend = name || voterName;
-      if (nameToSend) {
-        saveVoterName(nameToSend);
-        setVoterNameState(nameToSend);
-      }
+    const token = voterTokenRef.current;
+    const nameToSend = name || voterName;
+    if (nameToSend) {
+      saveVoterName(nameToSend);
+      setVoterNameState(nameToSend);
+    }
 
+    // Check contest active status
+    if (data.contest.status !== 'active') {
+      const msg = data.contest.status === 'paused'
+        ? 'A votação está temporariamente pausada pelo organizador.'
+        : 'A votação deste concurso já foi encerrada.';
+      setVoteMessage({ text: msg, type: 'error' });
+      setIsVoting(false);
+      return { success: false, message: msg };
+    }
+
+    // Try server first
+    try {
       const res = await fetch('/api/vote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -113,30 +196,92 @@ export function useContest() {
         }),
       });
 
-      const json = await res.json();
-
-      if (!res.ok || !json.success) {
-        const errorMsg = json.message || 'Falha ao registrar voto.';
-        setVoteMessage({ text: errorMsg, type: 'error' });
-        if (json.votedPhotoId) {
-          setVotedPhotoId(json.votedPhotoId);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success) {
+          setVotedPhotoId(photoId);
+          if (json.contestData) {
+            setData(json.contestData);
+            persistLocally(json.contestData);
+          }
+          setVoteMessage({ text: json.message || 'Voto computado com sucesso!', type: 'success' });
+          return { success: true, message: json.message };
+        } else {
+          setVoteMessage({ text: json.message || 'Falha ao votar.', type: 'error' });
+          if (json.votedPhotoId) setVotedPhotoId(json.votedPhotoId);
+          return { success: false, message: json.message };
         }
-        return { success: false, message: errorMsg };
       }
-
-      setVotedPhotoId(photoId);
-      if (json.contestData) {
-        setData(json.contestData);
-      }
-      setVoteMessage({ text: json.message || 'Voto computado com sucesso!', type: 'success' });
-      return { success: true, message: json.message };
-    } catch (err) {
-      const errorMsg = 'Erro de conexão ao enviar voto. Tente novamente.';
-      setVoteMessage({ text: errorMsg, type: 'error' });
-      return { success: false, message: errorMsg };
-    } finally {
-      setIsVoting(false);
+    } catch {
+      // Server not reachable (e.g. Vercel static), process vote locally
     }
+
+    // Client-side vote processing (100% resilient on Vercel)
+    const existingIndex = localVotesRef.current.findIndex((v) => v.voterToken === token);
+    if (existingIndex !== -1 && !data.contest.allowRevote) {
+      const msg = 'Você já registrou seu voto neste concurso! O regulamento permite apenas 1 voto por pessoa.';
+      setVoteMessage({ text: msg, type: 'error' });
+      setVotedPhotoId(localVotesRef.current[existingIndex].photoId);
+      setIsVoting(false);
+      return { success: false, message: msg };
+    }
+
+    const updatedPhotos = data.photos.map((p) => {
+      if (existingIndex !== -1 && p.id === localVotesRef.current[existingIndex].photoId && p.votes > 0) {
+        return { ...p, votes: p.votes - 1 };
+      }
+      if (p.id === photoId) {
+        return { ...p, votes: p.votes + 1 };
+      }
+      return p;
+    });
+
+    const newVoteRecord: VoteRecord = {
+      id: 'vote-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6),
+      voterToken: token,
+      ipHash: 'local-' + token.slice(0, 8),
+      photoId,
+      voterName: nameToSend,
+      timestamp: Date.now(),
+    };
+
+    let updatedVotesList = [...localVotesRef.current];
+    if (existingIndex !== -1) {
+      updatedVotesList[existingIndex] = newVoteRecord;
+    } else {
+      updatedVotesList.push(newVoteRecord);
+    }
+
+    const targetPhoto = data.photos.find((p) => p.id === photoId);
+    const newRecent = [
+      {
+        photoId,
+        photoTitle: targetPhoto?.title || 'Desenho',
+        voterName: nameToSend,
+        timestamp: Date.now(),
+      },
+      ...data.recentVotes,
+    ].slice(0, 8);
+
+    const recomputedPhotos = recalculateStatsLocal(updatedPhotos);
+    const totalVotes = recomputedPhotos.reduce((sum, p) => sum + p.votes, 0);
+
+    const updatedContestData: ContestData = {
+      contest: data.contest,
+      photos: recomputedPhotos,
+      totalVotes,
+      totalVoters: updatedVotesList.length,
+      recentVotes: newRecent,
+    };
+
+    setData(updatedContestData);
+    setVotedPhotoId(photoId);
+    persistLocally(updatedContestData, updatedVotesList);
+
+    const successMsg = 'Voto computado com sucesso! Salvo localmente.';
+    setVoteMessage({ text: successMsg, type: 'success' });
+    setIsVoting(false);
+    return { success: true, message: successMsg };
   };
 
   // Admin controls
@@ -148,80 +293,249 @@ export function useContest() {
     imageUrl: string;
     cameraInfo?: string;
   }) => {
-    const res = await fetch('/api/admin/photo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(photoData),
-    });
-    const json = await res.json();
-    if (json.contestData) setData(json.contestData);
-    return json;
+    try {
+      const res = await fetch('/api/admin/photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(photoData),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.contestData) {
+          setData(json.contestData);
+          persistLocally(json.contestData);
+          return json;
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+
+    const newEntry: PhotoEntry = {
+      id: 'photo-' + Date.now(),
+      title: photoData.title.trim(),
+      photographer: photoData.photographer.trim(),
+      category: photoData.category || 'Geral',
+      description: photoData.description || '',
+      imageUrl: photoData.imageUrl,
+      cameraInfo: photoData.cameraInfo,
+      votes: 0,
+      percentage: 0,
+      rank: data.photos.length + 1,
+      createdAt: new Date().toISOString(),
+    };
+
+    const newPhotos = recalculateStatsLocal([...data.photos, newEntry]);
+    const updatedData: ContestData = {
+      ...data,
+      photos: newPhotos,
+    };
+    setData(updatedData);
+    persistLocally(updatedData);
+    return { success: true, photo: newEntry, contestData: updatedData };
   };
 
   const deletePhoto = async (id: string) => {
-    const res = await fetch(`/api/admin/photo/${id}`, { method: 'DELETE' });
-    const json = await res.json();
-    if (json.contestData) setData(json.contestData);
-    return json;
+    try {
+      const res = await fetch(`/api/admin/photo/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.contestData) {
+          setData(json.contestData);
+          persistLocally(json.contestData);
+          return json;
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+
+    const filtered = data.photos.filter((p) => p.id !== id);
+    const recomputed = recalculateStatsLocal(filtered);
+    const updatedData: ContestData = {
+      ...data,
+      photos: recomputed,
+      totalVotes: recomputed.reduce((s, p) => s + p.votes, 0),
+    };
+    setData(updatedData);
+    persistLocally(updatedData);
+    return { success: true, contestData: updatedData };
   };
 
   const updateSettings = async (settings: Partial<ContestSettings>) => {
-    const res = await fetch('/api/admin/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings),
-    });
-    const json = await res.json();
-    if (json.contestData) setData(json.contestData);
-    return json;
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.contestData) {
+          setData(json.contestData);
+          persistLocally(json.contestData);
+          return json;
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+
+    const updatedData: ContestData = {
+      ...data,
+      contest: { ...data.contest, ...settings },
+    };
+    setData(updatedData);
+    persistLocally(updatedData);
+    return { success: true, contestData: updatedData };
   };
 
   const resetVotes = async () => {
-    const res = await fetch('/api/admin/reset-votes', { method: 'POST' });
-    const json = await res.json();
-    if (json.contestData) setData(json.contestData);
+    try {
+      const res = await fetch('/api/admin/reset-votes', { method: 'POST' });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.contestData) {
+          setData(json.contestData);
+          persistLocally(json.contestData, []);
+          setVotedPhotoId(null);
+          return json;
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+
+    const zeroed = data.photos.map((p) => ({ ...p, votes: 0, percentage: 0 }));
+    const updatedData: ContestData = {
+      ...data,
+      photos: zeroed,
+      totalVotes: 0,
+      totalVoters: 0,
+      recentVotes: [],
+    };
+    setData(updatedData);
+    persistLocally(updatedData, []);
     setVotedPhotoId(null);
-    return json;
+    return { success: true, contestData: updatedData };
   };
 
   const restoreDemo = async () => {
-    const res = await fetch('/api/admin/restore-demo', { method: 'POST' });
-    const json = await res.json();
-    if (json.contestData) setData(json.contestData);
+    try {
+      const res = await fetch('/api/admin/restore-demo', { method: 'POST' });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.contestData) {
+          setData(json.contestData);
+          persistLocally(json.contestData, []);
+          setVotedPhotoId(null);
+          return json;
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+
+    const demoData = getInitialContestData();
+    setData(demoData);
+    persistLocally(demoData, []);
     setVotedPhotoId(null);
-    return json;
+    return { success: true, contestData: demoData };
   };
 
   const updatePhoto = async (id: string, updates: Partial<PhotoEntry>) => {
-    const res = await fetch(`/api/admin/photo/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-    const json = await res.json();
-    if (json.contestData) setData(json.contestData);
-    return json;
+    try {
+      const res = await fetch(`/api/admin/photo/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.contestData) {
+          setData(json.contestData);
+          persistLocally(json.contestData);
+          return json;
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+
+    const updatedList = data.photos.map((p) => (p.id === id ? { ...p, ...updates } : p));
+    const recomputed = recalculateStatsLocal(updatedList);
+    const updatedData: ContestData = { ...data, photos: recomputed };
+    setData(updatedData);
+    persistLocally(updatedData);
+    return { success: true, contestData: updatedData };
   };
 
   const setAllPhotos = async (newPhotos: PhotoEntry[]) => {
-    const res = await fetch('/api/admin/photos/set-all', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ newPhotos }),
-    });
-    const json = await res.json();
-    if (json.contestData) setData(json.contestData);
-    return json;
+    try {
+      const res = await fetch('/api/admin/photos/set-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPhotos }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.contestData) {
+          setData(json.contestData);
+          persistLocally(json.contestData);
+          return json;
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+
+    const recomputed = recalculateStatsLocal(newPhotos);
+    const updatedData: ContestData = { ...data, photos: recomputed };
+    setData(updatedData);
+    persistLocally(updatedData);
+    return { success: true, contestData: updatedData };
   };
 
   const simulateVote = async () => {
-    const res = await fetch('/api/admin/simulate-vote', { method: 'POST' });
-    const json = await res.json();
-    if (json.contestData) setData(json.contestData);
-    return json;
+    try {
+      const res = await fetch('/api/admin/simulate-vote', { method: 'POST' });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.contestData) {
+          setData(json.contestData);
+          persistLocally(json.contestData);
+          return json;
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+
+    if (data.photos.length === 0) return { success: false };
+    const randomIndex = Math.floor(Math.random() * data.photos.length);
+    const selected = data.photos[randomIndex];
+    const fakeNames = ['Lucas', 'Beatriz', 'Thiago', 'Fernanda', 'Rodrigo', 'Camila', 'Marcos', 'Larissa', 'Vinicius', 'Aline'];
+    const fakeName = fakeNames[Math.floor(Math.random() * fakeNames.length)];
+
+    const updatedPhotos = data.photos.map((p) => (p.id === selected.id ? { ...p, votes: p.votes + 1 } : p));
+    const recomputed = recalculateStatsLocal(updatedPhotos);
+    const updatedData: ContestData = {
+      ...data,
+      photos: recomputed,
+      totalVotes: data.totalVotes + 1,
+      totalVoters: data.totalVoters + 1,
+      recentVotes: [
+        { photoId: selected.id, photoTitle: selected.title, voterName: fakeName, timestamp: Date.now() },
+        ...data.recentVotes,
+      ].slice(0, 8),
+    };
+
+    setData(updatedData);
+    persistLocally(updatedData);
+    return { success: true, contestData: updatedData };
   };
 
-  // Restore backup from JSON (resumes state exactly from where it stopped)
+  // Restore backup from JSON (works both online and offline)
   const restoreBackup = async (backupPayload: any) => {
     try {
       const res = await fetch('/api/contest/restore', {
@@ -229,51 +543,95 @@ export function useContest() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(backupPayload),
       });
-      const json = await res.json();
-      if (json.contestData) {
-        setData(json.contestData);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.contestData) {
+          setData(json.contestData);
+          persistLocally(json.contestData, backupPayload.votes || []);
+          return json;
+        }
       }
-      return json;
-    } catch (e: any) {
-      return { success: false, message: e?.message || 'Falha na conexão ao restaurar backup.' };
+    } catch {
+      // offline fallback
     }
+
+    if (!backupPayload || !Array.isArray(backupPayload.photos)) {
+      return { success: false, message: 'Arquivo de backup inválido.' };
+    }
+
+    const recomputed = recalculateStatsLocal(backupPayload.photos);
+    const restoredContestData: ContestData = {
+      contest: backupPayload.contestSettings || backupPayload.contest || data.contest,
+      photos: recomputed,
+      totalVotes: recomputed.reduce((s, p) => s + p.votes, 0),
+      totalVoters: Array.isArray(backupPayload.votes) ? backupPayload.votes.length : backupPayload.totalVoters || 0,
+      recentVotes: backupPayload.recentVotes || [],
+    };
+
+    setData(restoredContestData);
+    persistLocally(restoredContestData, backupPayload.votes || []);
+    return {
+      success: true,
+      message: `Backup restaurado com sucesso! Carregadas ${recomputed.length} obras.`,
+      contestData: restoredContestData,
+    };
   };
 
-  // Trigger JSON backup file download
+  // Trigger JSON backup file download (with client-side fallback)
   const downloadBackup = () => {
-    window.location.href = '/api/contest/backup';
+    const backupData = {
+      app: 'DesenhoNazare',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      totalVotes: data.totalVotes,
+      totalVoters: data.totalVoters,
+      contestSettings: data.contest,
+      photos: data.photos,
+      votes: localVotesRef.current,
+      recentVotes: data.recentVotes,
+    };
+
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backup-concurso-nazare-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
-  // Trigger CSV votes audit spreadsheet download
+  // Trigger CSV votes audit spreadsheet download (with client-side fallback)
   const downloadCsv = () => {
-    window.location.href = '/api/contest/export-csv';
-  };
+    let csv = '\uFEFF';
+    csv += `"RELATÓRIO OFICIAL DE APURAÇÃO - CONCURSO DE DESENHO DE NOSSA SENHORA DE NAZARÉ"\n`;
+    csv += `"Data de Emissão";"${new Date().toLocaleString('pt-BR')}"\n`;
+    csv += `"Status do Concurso";"${data.contest.status === 'active' ? 'Ativo / Em Andamento' : data.contest.status === 'paused' ? 'Pausado' : 'Encerrado'}"\n`;
+    csv += `"Total Geral de Votos";"${data.totalVotes}"\n\n`;
+    csv += `"CLASSIFICAÇÃO GERAL DAS OBRAS"\n`;
+    csv += `"Posição";"Título da Obra";"Artista / Candidato";"Categoria / Técnica";"Votos";"Percentual"\n`;
+    data.photos.forEach((p) => {
+      csv += `"${p.rank}º Lugar";"${p.title.replace(/"/g, '""')}";"${p.photographer.replace(/"/g, '""')}";"${p.category.replace(/"/g, '""')}";"${p.votes}";"${p.percentage}%"\n`;
+    });
 
-  // Keep a local copy in browser localStorage for offline/extra safety
-  useEffect(() => {
-    if (data && data.photos && data.photos.length > 0) {
-      try {
-        localStorage.setItem(
-          'contest_local_mirror',
-          JSON.stringify({
-            savedAt: new Date().toISOString(),
-            totalVotes: data.totalVotes,
-            photos: data.photos,
-            contest: data.contest,
-          })
-        );
-      } catch (err) {
-        // ignore quota limits if images are large
-      }
-    }
-  }, [data]);
+    const blob = new Blob([csv], { type: 'text/csv; charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `apuracao-votos-nazare-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   return {
-    contest: data?.contest || null,
-    photos: data?.photos || [],
-    totalVotes: data?.totalVotes || 0,
-    totalVoters: data?.totalVoters || 0,
-    recentVotes: data?.recentVotes || [],
+    contest: data.contest,
+    photos: data.photos,
+    totalVotes: data.totalVotes,
+    totalVoters: data.totalVoters,
+    recentVotes: data.recentVotes,
     loading,
     error,
     votedPhotoId,

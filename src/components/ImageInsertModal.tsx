@@ -22,6 +22,7 @@ import {
   ArrowRight,
   Eye
 } from 'lucide-react';
+import { compressImageFile } from '../utils/imageOptimizer.ts';
 
 interface ImageInsertModalProps {
   isOpen: boolean;
@@ -138,19 +139,19 @@ export const ImageInsertModal: React.FC<ImageInsertModalProps> = ({
     if (!file) return;
 
     try {
-      const base64 = await readFileAsBase64(file);
-      await onUpdatePhoto(slotId, { imageUrl: base64 });
+      const optimizedBase64 = await compressImageFile(file, 1280, 0.85);
+      await onUpdatePhoto(slotId, { imageUrl: optimizedBase64 });
 
       // Update slot state immediately
       setSlots((prev) =>
-        prev.map((s) => (s.id === slotId ? { ...s, imageUrl: base64 } : s))
+        prev.map((s) => (s.id === slotId ? { ...s, imageUrl: optimizedBase64 } : s))
       );
 
-      setStatusMessage(`Imagem da obra atualizada com sucesso! QR Code pronto.`);
+      setStatusMessage(`Imagem da obra otimizada e atualizada com sucesso! QR Code pronto.`);
       setTimeout(() => setStatusMessage(null), 3000);
     } catch (err) {
       console.error(err);
-      alert('Erro ao carregar arquivo de imagem.');
+      alert('Erro ao carregar e otimizar arquivo de imagem.');
     }
   };
 
@@ -189,7 +190,7 @@ export const ImageInsertModal: React.FC<ImageInsertModalProps> = ({
     const fileList = Array.from(files);
 
     for (const file of fileList) {
-      const base64 = await readFileAsBase64(file);
+      const optimizedBase64 = await compressImageFile(file, 1280, 0.85);
       const lower = file.name.toLowerCase();
 
       // Check if file name matches 01, 02, 03, 04, 05
@@ -201,7 +202,7 @@ export const ImageInsertModal: React.FC<ImageInsertModalProps> = ({
       else if (lower.includes('05') || lower.includes('5')) targetSlot = slots[4];
 
       if (targetSlot) {
-        await onUpdatePhoto(targetSlot.id, { imageUrl: base64 });
+        await onUpdatePhoto(targetSlot.id, { imageUrl: optimizedBase64 });
       } else {
         // Create new entry
         const cleanName = file.name.replace(/\.[^/.]+$/, '').trim();
@@ -210,7 +211,7 @@ export const ImageInsertModal: React.FC<ImageInsertModalProps> = ({
           photographer: 'Artista Participante',
           category: 'Arte em Desenho',
           description: 'Obra inserida para votação na Exposição de Arte em Desenho de Nossa Senhora de Nazaré.',
-          imageUrl: base64,
+          imageUrl: optimizedBase64,
           cameraInfo: 'Técnica sobre papel',
         });
       }

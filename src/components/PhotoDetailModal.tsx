@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import type { PhotoEntry } from '../types/contest.ts';
 import { X, Camera, Award, ChevronLeft, ChevronRight, CheckCircle2, Heart, QrCode, Download, Copy, Check } from 'lucide-react';
+import { getFallbackImageUrl } from '../utils/seedData.ts';
 
 const ArtworkDetailQr: React.FC<{ photoId: string; photoTitle: string }> = ({ photoId, photoTitle }) => {
   const [qrUrl, setQrUrl] = useState<string>('');
@@ -145,6 +146,13 @@ export const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
             src={photo.imageUrl}
             alt={photo.title}
             className="w-full h-full object-contain max-h-[92vh] select-none"
+            onError={(e) => {
+              const target = e.currentTarget;
+              if (!target.dataset.triedFallback) {
+                target.dataset.triedFallback = '1';
+                target.src = getFallbackImageUrl(photo.id, photo.imageUrl);
+              }
+            }}
           />
           {hasVotedForThis && (
             <div className="absolute top-4 left-4 z-10 px-3.5 py-1.5 rounded-full bg-emerald-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-500/30">

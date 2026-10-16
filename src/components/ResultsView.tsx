@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { ContestData, PhotoEntry } from '../types/contest.ts';
+import { getFallbackImageUrl } from '../utils/seedData.ts';
 import {
   Trophy,
   Crown,
@@ -346,6 +347,13 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                 src={top1.imageUrl}
                 alt={top1.title}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (!target.dataset.triedFallback) {
+                    target.dataset.triedFallback = '1';
+                    target.src = getFallbackImageUrl(top1.id, top1.imageUrl);
+                  }
+                }}
               />
               <div className="absolute top-2 left-2 px-2.5 py-1 rounded-xl bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow">
                 <Crown className="w-3.5 h-3.5" /> 1º Lugar
@@ -474,6 +482,13 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                           src={photo.imageUrl}
                           alt={photo.title}
                           className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            if (!target.dataset.triedFallback) {
+                              target.dataset.triedFallback = '1';
+                              target.src = getFallbackImageUrl(photo.id, photo.imageUrl);
+                            }
+                          }}
                         />
                       </div>
                     </td>

@@ -18,92 +18,14 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-import { DRAWING_FALLBACKS } from './src/utils/artworkSvgs.ts';
+import { INITIAL_PHOTOS, INITIAL_CONTEST_SETTINGS } from './src/utils/seedData.ts';
 
-// Initial Seed Drawings corresponding to the 5 uploaded images:
-// 01.jpeg, 02.jpeg, 03.jpeg, 04.jpeg, 05.jpeg (All starting with 0 votes)
-const initialPhotos: PhotoEntry[] = [
-  {
-    id: 'desenho-1',
-    title: 'Mãe da Esperança e Círio Fluvial',
-    photographer: 'Candidato 01 (01.jpeg)',
-    category: 'Lápis de Cor & Nanquim',
-    description: 'Nossa Senhora acolhendo o Menino Jesus adormecido em seus braços, manto azul anil com arabescos dourados, coroa imperial, lírios brancos e ao fundo a Basílica de Nazaré com barco na romaria fluvial.',
-    imageUrl: DRAWING_FALLBACKS['desenho-1'],
-    cameraInfo: 'Lápis de cor e nanquim sobre papel · Obra 01',
-    votes: 0,
-    percentage: 0,
-    rank: 1,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'desenho-2',
-    title: 'Coração Imaculado e Sereno',
-    photographer: 'Layla (02.jpeg)',
-    category: 'Grafite Clássico Sombreado',
-    description: 'Retrato sereno com sombreamento refinado de Nossa Senhora em moldura oval clássica ornamentada com flores e arabescos, trazendo o olhar maternal e medalha ao peito.',
-    imageUrl: DRAWING_FALLBACKS['desenho-2'],
-    cameraInfo: 'Grafite sombreado e esfuminho sobre papel · Obra 02',
-    votes: 0,
-    percentage: 0,
-    rank: 2,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'desenho-3',
-    title: 'Doçura e Ternura de Mãe',
-    photographer: 'Candidato 03 (03.jpeg)',
-    category: 'Ilustração & Moldura Barroca',
-    description: 'Composição vibrante com traços expressivos e carismáticos da Virgem de Nazaré com o Menino Jesus sorridente com globo azul, emoldurada por arabescos dourados barrocos.',
-    imageUrl: DRAWING_FALLBACKS['desenho-3'],
-    cameraInfo: 'Lápis de cor, caneta e recorte artesanal · Obra 03',
-    votes: 0,
-    percentage: 0,
-    rank: 3,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'desenho-4',
-    title: 'A Oração da Ave Maria',
-    photographer: 'Candidato 04 (04.jpeg)',
-    category: 'Grafite sobre Papel',
-    description: 'Nossa Senhora em profunda oração com as mãos postas segurando o Santo Terço com crucifixo, sob os raios de um sol radiante entre nuvens, acompanhada pela oração manuscrita da Ave Maria.',
-    imageUrl: DRAWING_FALLBACKS['desenho-4'],
-    cameraInfo: 'Grafite e caligrafia manuscrita sobre papel · Obra 04',
-    votes: 0,
-    percentage: 0,
-    rank: 4,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'desenho-5',
-    title: 'Manto das Rosas de Nazaré',
-    photographer: 'Luan (05.jpeg)',
-    category: 'Lápis de Cor & Grafite',
-    description: 'Desenho colorido de Nossa Senhora de Nazaré com o Menino Jesus no colo, envolta em um manto branco adornado com rosas e espinhos, broche central do Círio e base hexagonal.',
-    imageUrl: DRAWING_FALLBACKS['desenho-5'],
-    cameraInfo: 'Lápis de cor e traço a mão sobre papel · Obra 05',
-    votes: 0,
-    percentage: 0,
-    rank: 5,
-    createdAt: new Date().toISOString(),
-  },
-];
+// Explicitly serve static public assets and images
+app.use('/images', express.static(path.resolve(__dirname, 'public', 'images')));
+app.use(express.static(path.resolve(__dirname, 'public')));
 
-let contestSettings: ContestSettings = {
-  id: 'contest-nazare-2026',
-  title: 'ESCOLHA DO DESENHO DE NOSSA SENHORA DE NAZARÉ',
-  subtitle: 'Exposição de Arte em Desenho • Votação Popular',
-  theme: 'Nossa Senhora de Nazaré',
-  status: 'active',
-  allowRevote: false, // Strict 1 vote per person
-  showLiveCountToParticipants: true,
-  revealWinner: false,
-  prizeDescription: '',
-  endsAt: null,
-};
-
-let photos: PhotoEntry[] = JSON.parse(JSON.stringify(initialPhotos));
+let contestSettings: ContestSettings = { ...INITIAL_CONTEST_SETTINGS };
+let photos: PhotoEntry[] = JSON.parse(JSON.stringify(INITIAL_PHOTOS));
 let votes: VoteRecord[] = [];
 let recentVotes: { photoId: string; photoTitle: string; voterName?: string; timestamp: number }[] = [];
 
@@ -479,16 +401,11 @@ app.post('/api/admin/reset-votes', (req, res) => {
   res.json({ success: true, contestData: getContestData() });
 });
 
-app.post('/api/admin/restore-demo', (req, res) => {
-  photos = JSON.parse(JSON.stringify(initialPhotos));
+app.post('/api/admin/restore-demo', (_req, res) => {
+  photos = JSON.parse(JSON.stringify(INITIAL_PHOTOS));
   votes = [];
   recentVotes = [];
-  contestSettings.title = 'ESCOLHA DO DESENHO DE NOSSA SENHORA DE NAZARÉ';
-  contestSettings.subtitle = 'Exposição de Arte em Desenho • Votação Popular';
-  contestSettings.theme = 'Nossa Senhora de Nazaré';
-  contestSettings.prizeDescription = '';
-  contestSettings.status = 'active';
-  contestSettings.revealWinner = false;
+  contestSettings = { ...INITIAL_CONTEST_SETTINGS };
   recalculateStats();
   saveStateToDisk();
   broadcastUpdate();

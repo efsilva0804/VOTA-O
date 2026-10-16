@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import type { ContestData, PhotoEntry } from '../types/contest.ts';
+import { getFallbackImageUrl } from '../utils/seedData.ts';
 import {
   Heart,
   Search,
@@ -233,6 +234,13 @@ export const VotingGallery: React.FC<VotingGalleryProps> = ({
                     alt={photo.title}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     loading="lazy"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (!target.dataset.triedFallback) {
+                        target.dataset.triedFallback = '1';
+                        target.src = getFallbackImageUrl(photo.id, photo.imageUrl);
+                      }
+                    }}
                   />
 
                   {/* Gradient shade */}
