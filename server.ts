@@ -1,0 +1,562 @@
+import express from 'express';
+import { createServer as createViteServer } from 'vite';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import crypto from 'crypto';
+import dotenv from 'dotenv';
+import type { PhotoEntry, ContestSettings, ContestData, VoteRecord } from './src/types/contest.ts';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const PORT = parseInt(process.env.PORT || '3000', 10);
+
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+import { DRAWING_FALLBACKS } from './src/utils/artworkSvgs.ts';
+
+// Initial Seed Drawings corresponding to the 5 uploaded images:
+// 01.jpeg, 02.jpeg, 03.jpeg, 04.jpeg, 05.jpeg (All starting with 0 votes)
+const initialPhotos: PhotoEntry[] = [
+  {
+    id: 'desenho-1',
+    title: 'Mãe da Esperança e Círio Fluvial',
+    photographer: 'Candidato 01 (01.jpeg)',
+    category: 'Lápis de Cor & Nanquim',
+    description: 'Nossa Senhora acolhendo o Menino Jesus adormecido em seus braços, manto azul anil com arabescos dourados, coroa imperial, lírios brancos e ao fundo a Basílica de Nazaré com barco na romaria fluvial.',
+    imageUrl: DRAWING_FALLBACKS['desenho-1'],
+    cameraInfo: 'Lápis de cor e nanquim sobre papel · Obra 01',
+    votes: 0,
+    percentage: 0,
+    rank: 1,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'desenho-2',
+    title: 'Coração Imaculado e Sereno',
+    photographer: 'Layla (02.jpeg)',
+    category: 'Grafite Clássico Sombreado',
+    description: 'Retrato sereno com sombreamento refinado de Nossa Senhora em moldura oval clássica ornamentada com flores e arabescos, trazendo o olhar maternal e medalha ao peito.',
+    imageUrl: DRAWING_FALLBACKS['desenho-2'],
+    cameraInfo: 'Grafite sombreado e esfuminho sobre papel · Obra 02',
+    votes: 0,
+    percentage: 0,
+    rank: 2,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'desenho-3',
+    title: 'Doçura e Ternura de Mãe',
+    photographer: 'Candidato 03 (03.jpeg)',
+    category: 'Ilustração & Moldura Barroca',
+    description: 'Composição vibrante com traços expressivos e carismáticos da Virgem de Nazaré com o Menino Jesus sorridente com globo azul, emoldurada por arabescos dourados barrocos.',
+    imageUrl: DRAWING_FALLBACKS['desenho-3'],
+    cameraInfo: 'Lápis de cor, caneta e recorte artesanal · Obra 03',
+    votes: 0,
+    percentage: 0,
+    rank: 3,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'desenho-4',
+    title: 'A Oração da Ave Maria',
+    photographer: 'Candidato 04 (04.jpeg)',
+    category: 'Grafite sobre Papel',
+    description: 'Nossa Senhora em profunda oração com as mãos postas segurando o Santo Terço com crucifixo, sob os raios de um sol radiante entre nuvens, acompanhada pela oração manuscrita da Ave Maria.',
+    imageUrl: DRAWING_FALLBACKS['desenho-4'],
+    cameraInfo: 'Grafite e caligrafia manuscrita sobre papel · Obra 04',
+    votes: 0,
+    percentage: 0,
+    rank: 4,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'desenho-5',
+    title: 'Manto das Rosas de Nazaré',
+    photographer: 'Luan (05.jpeg)',
+    category: 'Lápis de Cor & Grafite',
+    description: 'Desenho colorido de Nossa Senhora de Nazaré com o Menino Jesus no colo, envolta em um manto branco adornado com rosas e espinhos, broche central do Círio e base hexagonal.',
+    imageUrl: DRAWING_FALLBACKS['desenho-5'],
+    cameraInfo: 'Lápis de cor e traço a mão sobre papel · Obra 05',
+    votes: 0,
+    percentage: 0,
+    rank: 5,
+    createdAt: new Date().toISOString(),
+  },
+];
+
+let contestSettings: ContestSettings = {
+  id: 'contest-nazare-2026',
+  title: 'ESCOLHA DO DESENHO DE NOSSA SENHORA DE NAZARÉ',
+  subtitle: 'Exposição de Arte em Desenho • Votação Popular',
+  theme: 'Nossa Senhora de Nazaré',
+  status: 'active',
+  allowRevote: false, // Strict 1 vote per person
+  showLiveCountToParticipants: true,
+  revealWinner: false,
+  prizeDescription: '',
+  endsAt: null,
+};
+
+let photos: PhotoEntry[] = JSON.parse(JSON.stringify(initialPhotos));
+let votes: VoteRecord[] = [];
+let recentVotes: { photoId: string; photoTitle: string; voterName?: string; timestamp: number }[] = [];
+
+// Persistence file
+const DATA_FILE = path.join(__dirname, 'contest-state.json');
+
+function saveStateToDisk() {
+  try {
+    const data = {
+      photos,
+      votes,
+      recentVotes,
+      contestSettings,
+    };
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Error saving state to disk:', e);
+  }
+}
+
+function loadStateFromDisk() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.photos) && data.photos.length > 0) {
+        // Keep updated titles/images/photographers from user uploads
+        photos = data.photos;
+      }
+      if (Array.isArray(data.votes)) {
+        votes = data.votes;
+      }
+      if (Array.isArray(data.recentVotes)) {
+        recentVotes = data.recentVotes;
+      }
+      if (data.contestSettings) {
+        contestSettings = { ...contestSettings, ...data.contestSettings };
+      }
+    }
+  } catch (e) {
+    console.error('Error loading state from disk:', e);
+  }
+}
+
+// Load persisted state if exists
+loadStateFromDisk();
+
+// Enforce contest starts from scratch (0 votes for all drawings)
+photos.forEach((p) => {
+  p.votes = 0;
+  p.percentage = 0;
+});
+votes = [];
+recentVotes = [];
+
+// Track SSE clients
+const sseClients = new Set<express.Response>();
+
+function recalculateStats() {
+  const totalVotes = photos.reduce((sum, p) => sum + p.votes, 0);
+
+  // Sort photos descending by votes, then maintain natural drawing order
+  photos.sort((a, b) => {
+    if (b.votes !== a.votes) {
+      return b.votes - a.votes;
+    }
+    return a.id.localeCompare(b.id, undefined, { numeric: true });
+  });
+
+  photos.forEach((photo, index) => {
+    photo.rank = index + 1;
+    photo.percentage = totalVotes > 0 ? Math.round((photo.votes / totalVotes) * 1000) / 10 : 0;
+  });
+}
+
+// Initial calculation & persist clean slate
+recalculateStats();
+saveStateToDisk();
+
+function getContestData(): ContestData {
+  const totalVotes = photos.reduce((sum, p) => sum + p.votes, 0);
+  return {
+    contest: contestSettings,
+    photos: photos.map((p) => ({ ...p })),
+    totalVotes,
+    totalVoters: votes.length > 0 ? votes.length : totalVotes,
+    recentVotes: recentVotes.slice(0, 8),
+  };
+}
+
+function broadcastUpdate() {
+  const data = JSON.stringify(getContestData());
+  sseClients.forEach((client) => {
+    try {
+      client.write(`event: update\ndata: ${data}\n\n`);
+    } catch {
+      sseClients.delete(client);
+    }
+  });
+}
+
+function getClientIpHash(req: express.Request): string {
+  const rawIp =
+    (req.headers['x-forwarded-for'] as string) ||
+    req.socket.remoteAddress ||
+    '127.0.0.1';
+  return crypto.createHash('sha256').update(rawIp.split(',')[0].trim()).digest('hex').substring(0, 16);
+}
+
+// API Routes
+app.get('/api/contest', (req, res) => {
+  const voterToken = (req.query.voterToken as string) || (req.headers['x-voter-token'] as string);
+  const ipHash = getClientIpHash(req);
+
+  let existingVote: VoteRecord | undefined;
+  if (voterToken) {
+    existingVote = votes.find((v) => v.voterToken === voterToken);
+  }
+  if (!existingVote && ipHash) {
+    existingVote = votes.find((v) => v.ipHash === ipHash);
+  }
+
+  res.json({
+    ...getContestData(),
+    hasVoted: !!existingVote,
+    votedPhotoId: existingVote?.photoId || null,
+    voterName: existingVote?.voterName || null,
+  });
+});
+
+// Real-Time SSE Endpoint
+app.get('/api/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  // Send current data immediately
+  res.write(`event: update\ndata: ${JSON.stringify(getContestData())}\n\n`);
+
+  sseClients.add(res);
+
+  // Heartbeat to keep connection alive
+  const heartbeat = setInterval(() => {
+    res.write(': keepalive\n\n');
+  }, 15000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    sseClients.delete(res);
+  });
+});
+
+// Vote Endpoint: Strict 1 vote per person
+app.post('/api/vote', (req, res) => {
+  try {
+    const { photoId, voterToken, voterName } = req.body;
+
+    if (!photoId) {
+      return res.status(400).json({ success: false, message: 'Foto não especificada.' });
+    }
+
+    if (contestSettings.status !== 'active') {
+      return res.status(403).json({
+        success: false,
+        message:
+          contestSettings.status === 'paused'
+            ? 'A votação está temporariamente pausada pelo organizador.'
+            : 'A votação deste concurso já foi encerrada.',
+      });
+    }
+
+    const photo = photos.find((p) => p.id === photoId);
+    if (!photo) {
+      return res.status(404).json({ success: false, message: 'Foto não encontrada.' });
+    }
+
+    const token = voterToken || crypto.randomUUID();
+    const ipHash = getClientIpHash(req);
+
+    // Check existing vote
+    const existingIndex = votes.findIndex(
+      (v) => v.voterToken === token || (ipHash && v.ipHash === ipHash)
+    );
+
+    if (existingIndex !== -1) {
+      const prevVote = votes[existingIndex];
+
+      if (!contestSettings.allowRevote) {
+        return res.status(403).json({
+          success: false,
+          message: 'Você já registrou seu voto neste concurso! O regulamento permite apenas 1 voto por pessoa.',
+          votedPhotoId: prevVote.photoId,
+        });
+      }
+
+      // If revote is allowed, remove previous vote
+      const prevPhoto = photos.find((p) => p.id === prevVote.photoId);
+      if (prevPhoto && prevPhoto.votes > 0) {
+        prevPhoto.votes -= 1;
+      }
+      votes[existingIndex].photoId = photoId;
+      votes[existingIndex].voterName = voterName || votes[existingIndex].voterName;
+      votes[existingIndex].timestamp = Date.now();
+    } else {
+      // New vote
+      const newVote: VoteRecord = {
+        id: crypto.randomUUID(),
+        voterToken: token,
+        ipHash,
+        photoId,
+        voterName: voterName ? String(voterName).trim() : undefined,
+        timestamp: Date.now(),
+      };
+      votes.push(newVote);
+    }
+
+    // Increment vote count for selected photo
+    photo.votes += 1;
+
+    // Record recent activity
+    recentVotes.unshift({
+      photoId: photo.id,
+      photoTitle: photo.title,
+      voterName: voterName ? String(voterName).trim() : undefined,
+      timestamp: Date.now(),
+    });
+    if (recentVotes.length > 20) {
+      recentVotes.pop();
+    }
+
+    // Recalculate ranks and percentages
+    recalculateStats();
+    saveStateToDisk();
+
+    // Broadcast real-time update to all connected screens/devices
+    broadcastUpdate();
+
+    return res.json({
+      success: true,
+      message: 'Voto computado com sucesso! Obrigado pela sua participação.',
+      votedPhotoId: photo.id,
+      contestData: getContestData(),
+    });
+  } catch (error) {
+    console.error('Error voting:', error);
+    return res.status(500).json({ success: false, message: 'Erro interno ao processar voto.' });
+  }
+});
+
+// Admin endpoints
+app.post('/api/admin/photo', (req, res) => {
+  try {
+    const { title, photographer, category, description, imageUrl, cameraInfo } = req.body;
+    if (!title || !photographer || !imageUrl) {
+      return res.status(400).json({ success: false, message: 'Campos obrigatórios ausentes.' });
+    }
+
+    const newPhoto: PhotoEntry = {
+      id: 'photo-' + Date.now(),
+      title: title.trim(),
+      photographer: photographer.trim(),
+      category: category ? category.trim() : 'Geral',
+      description: description ? description.trim() : '',
+      imageUrl: imageUrl.trim(),
+      cameraInfo: cameraInfo ? cameraInfo.trim() : undefined,
+      votes: 0,
+      percentage: 0,
+      rank: photos.length + 1,
+      createdAt: new Date().toISOString(),
+    };
+
+    photos.push(newPhoto);
+    recalculateStats();
+    saveStateToDisk();
+    broadcastUpdate();
+
+    res.json({ success: true, photo: newPhoto, contestData: getContestData() });
+  } catch (error) {
+    console.error('Error adding photo:', error);
+    res.status(500).json({ success: false, message: 'Erro ao adicionar foto.' });
+  }
+});
+
+app.delete('/api/admin/photo/:id', (req, res) => {
+  const { id } = req.params;
+  const initialLength = photos.length;
+  photos = photos.filter((p) => p.id !== id);
+
+  if (photos.length === initialLength) {
+    return res.status(404).json({ success: false, message: 'Foto não encontrada.' });
+  }
+
+  // Remove votes associated with this photo
+  votes = votes.filter((v) => v.photoId !== id);
+  recalculateStats();
+  saveStateToDisk();
+  broadcastUpdate();
+
+  res.json({ success: true, contestData: getContestData() });
+});
+
+app.put('/api/admin/photo/:id', (req, res) => {
+  const { id } = req.params;
+  const photo = photos.find((p) => p.id === id);
+  if (!photo) {
+    return res.status(404).json({ success: false, message: 'Desenho não encontrado.' });
+  }
+
+  const { title, photographer, category, description, imageUrl, cameraInfo } = req.body;
+  if (title !== undefined) photo.title = title.trim();
+  if (photographer !== undefined) photo.photographer = photographer.trim();
+  if (category !== undefined) photo.category = category.trim();
+  if (description !== undefined) photo.description = description.trim();
+  if (imageUrl !== undefined) photo.imageUrl = imageUrl;
+  if (cameraInfo !== undefined) photo.cameraInfo = cameraInfo.trim();
+
+  recalculateStats();
+  saveStateToDisk();
+  broadcastUpdate();
+  res.json({ success: true, photo, contestData: getContestData() });
+});
+
+app.post('/api/admin/photos/set-all', (req, res) => {
+  try {
+    const { newPhotos } = req.body;
+    if (Array.isArray(newPhotos) && newPhotos.length > 0) {
+      photos = newPhotos.map((p: PhotoEntry, idx: number) => ({
+        id: p.id || `desenho-${idx + 1}`,
+        title: p.title || `Desenho ${idx + 1}`,
+        photographer: p.photographer || 'Artista',
+        category: p.category || 'Arte Sacra',
+        description: p.description || '',
+        imageUrl: p.imageUrl,
+        cameraInfo: p.cameraInfo,
+        votes: 0,
+        percentage: 0,
+        rank: idx + 1,
+        createdAt: p.createdAt || new Date().toISOString(),
+      }));
+      recalculateStats();
+      saveStateToDisk();
+      broadcastUpdate();
+      return res.json({ success: true, contestData: getContestData() });
+    }
+    res.status(400).json({ success: false, message: 'Lista inválida de desenhos.' });
+  } catch (err) {
+    console.error('Error setting all photos:', err);
+    res.status(500).json({ success: false, message: 'Erro ao atualizar desenhos.' });
+  }
+});
+
+app.post('/api/admin/settings', (req, res) => {
+  try {
+    const updates = req.body;
+    contestSettings = {
+      ...contestSettings,
+      ...updates,
+    };
+    saveStateToDisk();
+    broadcastUpdate();
+    res.json({ success: true, contestSettings, contestData: getContestData() });
+  } catch (error) {
+    console.error('Error updating settings:', error);
+    res.status(500).json({ success: false, message: 'Erro ao atualizar configurações.' });
+  }
+});
+
+app.post('/api/admin/reset-votes', (req, res) => {
+  votes = [];
+  recentVotes = [];
+  photos.forEach((p) => {
+    p.votes = 0;
+    p.percentage = 0;
+  });
+  recalculateStats();
+  saveStateToDisk();
+  broadcastUpdate();
+  res.json({ success: true, contestData: getContestData() });
+});
+
+app.post('/api/admin/restore-demo', (req, res) => {
+  photos = JSON.parse(JSON.stringify(initialPhotos));
+  votes = [];
+  recentVotes = [];
+  contestSettings.title = 'ESCOLHA DO DESENHO DE NOSSA SENHORA DE NAZARÉ';
+  contestSettings.subtitle = 'Exposição de Arte em Desenho • Votação Popular';
+  contestSettings.theme = 'Nossa Senhora de Nazaré';
+  contestSettings.prizeDescription = '';
+  contestSettings.status = 'active';
+  contestSettings.revealWinner = false;
+  recalculateStats();
+  saveStateToDisk();
+  broadcastUpdate();
+  res.json({ success: true, contestData: getContestData() });
+});
+
+// Simulation endpoint for test demonstrations
+app.post('/api/admin/simulate-vote', (req, res) => {
+  if (photos.length === 0) {
+    return res.status(400).json({ success: false, message: 'Nenhuma foto disponível.' });
+  }
+
+  // Weighted random pick (top photos have higher chance to create realistic voting swings)
+  const randomIndex = Math.floor(Math.random() * photos.length);
+  const selectedPhoto = photos[randomIndex];
+
+  const fakeNames = ['Lucas', 'Beatriz', 'Thiago', 'Fernanda', 'Rodrigo', 'Camila', 'Marcos', 'Larissa', 'Vinicius', 'Aline'];
+  const fakeName = fakeNames[Math.floor(Math.random() * fakeNames.length)];
+
+  selectedPhoto.votes += 1;
+  const fakeToken = 'sim-' + crypto.randomUUID();
+  votes.push({
+    id: crypto.randomUUID(),
+    voterToken: fakeToken,
+    ipHash: 'sim-' + Math.floor(Math.random() * 9999),
+    photoId: selectedPhoto.id,
+    voterName: fakeName,
+    timestamp: Date.now(),
+  });
+
+  recentVotes.unshift({
+    photoId: selectedPhoto.id,
+    photoTitle: selectedPhoto.title,
+    voterName: fakeName,
+    timestamp: Date.now(),
+  });
+  if (recentVotes.length > 20) recentVotes.pop();
+
+  recalculateStats();
+  broadcastUpdate();
+
+  res.json({ success: true, contestData: getContestData() });
+});
+
+// Configure Vite or Static files
+async function startServer() {
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+    });
+  } else {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`FotoVoto server listening on port ${PORT}`);
+  });
+}
+
+startServer();

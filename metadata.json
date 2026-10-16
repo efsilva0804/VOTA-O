@@ -1,0 +1,6 @@
+{
+  "name": "ESCOLHA DO DESENHO DE NOSSA SENHORA DE NAZARÉ",
+  "description": "Exposição de arte em desenho e votação em tempo real para a escolha do desenho de Nossa Senhora de Nazaré com QR Code e telão ao vivo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
