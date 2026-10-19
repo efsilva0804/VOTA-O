@@ -24,3 +24,8 @@ export function saveVoterName(name: string): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(VOTER_NAME_KEY, name.trim());
 }
+
+export function clearSavedVoterName(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(VOTER_NAME_KEY);
+}

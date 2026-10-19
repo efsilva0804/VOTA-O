@@ -14,7 +14,8 @@ import {
   AlertCircle,
   HelpCircle,
   QrCode,
-  Upload
+  Upload,
+  UserPlus,
 } from 'lucide-react';
 
 interface VotingGalleryProps {
@@ -24,6 +25,7 @@ interface VotingGalleryProps {
   onVoteClick: (photo: PhotoEntry) => void;
   onOpenQrModal: () => void;
   onOpenQrForPhoto?: (photo: PhotoEntry) => void;
+  onReleaseForNewVote?: () => void;
 }
 
 export const VotingGallery: React.FC<VotingGalleryProps> = ({
@@ -33,6 +35,7 @@ export const VotingGallery: React.FC<VotingGalleryProps> = ({
   onVoteClick,
   onOpenQrModal,
   onOpenQrForPhoto,
+  onReleaseForNewVote,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas');
@@ -108,14 +111,26 @@ export const VotingGallery: React.FC<VotingGalleryProps> = ({
         {/* Voting Status and 1-Vote Banner */}
         <div className="relative z-10 mt-6 pt-6 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-4">
           {votedPhoto ? (
-            <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 flex items-center gap-3 w-full sm:w-auto">
-              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-              <div>
-                <div className="font-bold text-xs sm:text-sm">Último voto computado com sucesso!</div>
-                <div className="text-[11px] text-emerald-300/80">
-                  Obra votada: <strong>"{votedPhoto.title}"</strong>. Outro participante pode votar agora com seu próprio nome.
+            <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 flex flex-wrap items-center justify-between gap-3 w-full sm:w-auto">
+              <div className="flex items-center gap-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                <div>
+                  <div className="font-bold text-xs sm:text-sm">Último voto computado com sucesso!</div>
+                  <div className="text-[11px] text-emerald-300/80">
+                    Obra votada: <strong>"{votedPhoto.title}"</strong>. Aparelho liberado para novos participantes.
+                  </div>
                 </div>
               </div>
+              {onReleaseForNewVote && (
+                <button
+                  type="button"
+                  onClick={onReleaseForNewVote}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  Liberar para Novo Voto
+                </button>
+              )}
             </div>
           ) : (
             <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 text-slate-300 flex items-center gap-3 text-xs sm:text-sm">

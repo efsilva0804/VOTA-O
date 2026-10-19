@@ -8,6 +8,7 @@ import { AdminPanel } from './components/AdminPanel.tsx';
 import { ResultsView } from './components/ResultsView.tsx';
 import { PhotoDetailModal } from './components/PhotoDetailModal.tsx';
 import { VoteConfirmModal } from './components/VoteConfirmModal.tsx';
+import { VoteSuccessModal } from './components/VoteSuccessModal.tsx';
 import { QRCodeModal } from './components/QRCodeModal.tsx';
 import { playVoteChime } from './utils/audio.ts';
 import type { PhotoEntry } from './types/contest.ts';
@@ -29,6 +30,7 @@ export default function App() {
     isVoting,
     voteMessage,
     clearVoteMessage,
+    resetForNewVote,
     isLiveConnected,
     vote,
     addPhoto,
@@ -51,6 +53,7 @@ export default function App() {
   const [photoToVote, setPhotoToVote] = useState<PhotoEntry | null>(null);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [targetPhotoForQr, setTargetPhotoForQr] = useState<PhotoEntry | null>(null);
+  const [successModalData, setSuccessModalData] = useState<{ voterName: string; photoTitle: string } | null>(null);
 
   // Read URL query parameter on mount (e.g. ?mode=stage, ?mode=vote, ?mode=results, or ?voteFor=desenho-1)
   useEffect(() => {
@@ -99,31 +102,41 @@ export default function App() {
     // If voting closed, ignore
     if (contest?.status !== 'active') return;
 
-    // If user already voted and revote is disabled, notify
-    if (votedPhotoId && !contest?.allowRevote) {
-      alert('Você já registrou seu voto neste concurso. O regulamento permite apenas 1 voto por pessoa.');
-      return;
-    }
-
     setPhotoToVote(photo);
   };
 
   // Submit vote
   const handleConfirmVote = async (photoId: string, name?: string) => {
+    const voterNameUsed = name || 'Participante';
+    const targetP = photos.find((p) => p.id === photoId);
+    const photoTitleUsed = targetP?.title || 'Desenho Escolhido';
+
     const res = await vote(photoId, name);
     if (res.success) {
       setPhotoToVote(null);
+      setSelectedPhotoForDetail(null);
       // Play celebratory sound
       playVoteChime();
 
       // Confetti burst on client
       confetti({
-        particleCount: 45,
-        spread: 60,
-        origin: { y: 0.7 },
-        colors: ['#f59e0b', '#10b981', '#ffffff'],
+        particleCount: 55,
+        spread: 75,
+        origin: { y: 0.6 },
+        colors: ['#f59e0b', '#10b981', '#38bdf8', '#ffffff'],
+      });
+
+      // Show success modal to celebrate and immediately release for next vote
+      setSuccessModalData({
+        voterName: voterNameUsed,
+        photoTitle: photoTitleUsed,
       });
     }
+  };
+
+  const handleReleaseForNewVote = () => {
+    setSuccessModalData(null);
+    resetForNewVote();
   };
 
   // Next / Prev in detail modal
@@ -219,6 +232,7 @@ export default function App() {
               setTargetPhotoForQr(photo);
               setIsQrModalOpen(true);
             }}
+            onReleaseForNewVote={handleReleaseForNewVote}
           />
         )}
 
@@ -289,7 +303,19 @@ export default function App() {
         votedNames={votedNames}
       />
 
-      {/* 3. QR Code Generator Modal (General or Artwork Specific) */}
+      {/* 3. Vote Success Modal (Liberar para nova votação) */}
+      <VoteSuccessModal
+        isOpen={!!successModalData}
+        voterName={successModalData?.voterName || ''}
+        photoTitle={successModalData?.photoTitle || ''}
+        onNewVote={handleReleaseForNewVote}
+        onViewResults={() => {
+          handleReleaseForNewVote();
+          setCurrentTab('results');
+        }}
+      />
+
+      {/* 4. QR Code Generator Modal (General or Artwork Specific) */}
       <QRCodeModal
         isOpen={isQrModalOpen}
         onClose={() => {

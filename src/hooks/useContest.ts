@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ContestData, ContestSettings, PhotoEntry, VoteRecord } from '../types/contest.ts';
-import { getOrCreateVoterToken, getSavedVoterName, saveVoterName } from '../utils/voter.ts';
+import { getOrCreateVoterToken, getSavedVoterName, saveVoterName, clearSavedVoterName } from '../utils/voter.ts';
 import { getInitialContestData, INITIAL_PHOTOS, INITIAL_CONTEST_SETTINGS } from '../utils/seedData.ts';
 
 const LOCAL_STORAGE_KEY = 'contest_state_v1';
@@ -645,7 +645,16 @@ export function useContest() {
     },
     isVoting,
     voteMessage,
-    clearVoteMessage: () => setVoteMessage(null),
+    clearVoteMessage: () => {
+      setVoteMessage(null);
+      setVotedPhotoId(null);
+    },
+    resetForNewVote: () => {
+      setVotedPhotoId(null);
+      setVoterNameState('');
+      clearSavedVoterName();
+      setVoteMessage(null);
+    },
     isLiveConnected,
     vote,
     refreshContest: fetchContest,
