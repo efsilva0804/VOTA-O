@@ -99,6 +99,15 @@ function recalculateStats() {
 recalculateStats();
 saveStateToDisk();
 
+function normalizeVoterName(name: string): string {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
 function getContestData(): ContestData {
   const totalVotes = photos.reduce((sum, p) => sum + p.votes, 0);
   return {
@@ -107,6 +116,7 @@ function getContestData(): ContestData {
     totalVotes,
     totalVoters: votes.length > 0 ? votes.length : totalVotes,
     recentVotes: recentVotes.slice(0, 8),
+    votedNames: votes.map((v) => v.voterName).filter(Boolean) as string[],
   };
 }
 
@@ -130,23 +140,11 @@ function getClientIpHash(req: express.Request): string {
 }
 
 // API Routes
-app.get('/api/contest', (req, res) => {
-  const voterToken = (req.query.voterToken as string) || (req.headers['x-voter-token'] as string);
-  const ipHash = getClientIpHash(req);
-
-  let existingVote: VoteRecord | undefined;
-  if (voterToken) {
-    existingVote = votes.find((v) => v.voterToken === voterToken);
-  }
-  if (!existingVote && ipHash) {
-    existingVote = votes.find((v) => v.ipHash === ipHash);
-  }
-
+app.get('/api/contest', (_req, res) => {
   res.json({
     ...getContestData(),
-    hasVoted: !!existingVote,
-    votedPhotoId: existingVote?.photoId || null,
-    voterName: existingVote?.voterName || null,
+    hasVoted: false,
+    votedPhotoId: null,
   });
 });
 
@@ -173,13 +171,21 @@ app.get('/api/events', (req, res) => {
   });
 });
 
-// Vote Endpoint: Strict 1 vote per person
+// Vote Endpoint: Multiple votes per access/device allowed, STRICTLY 1 vote per name
 app.post('/api/vote', (req, res) => {
   try {
-    const { photoId, voterToken, voterName } = req.body;
+    const { photoId, voterName } = req.body;
 
     if (!photoId) {
-      return res.status(400).json({ success: false, message: 'Foto não especificada.' });
+      return res.status(400).json({ success: false, message: 'Desenho não especificado.' });
+    }
+
+    const trimmedName = typeof voterName === 'string' ? voterName.trim() : '';
+    if (!trimmedName || trimmedName.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Por favor, informe seu nome para votar. O regulamento permite apenas 1 voto por nome.',
+      });
     }
 
     if (contestSettings.status !== 'active') {
@@ -194,48 +200,36 @@ app.post('/api/vote', (req, res) => {
 
     const photo = photos.find((p) => p.id === photoId);
     if (!photo) {
-      return res.status(404).json({ success: false, message: 'Foto não encontrada.' });
+      return res.status(404).json({ success: false, message: 'Desenho não encontrado.' });
     }
 
-    const token = voterToken || crypto.randomUUID();
-    const ipHash = getClientIpHash(req);
+    const normalized = normalizeVoterName(trimmedName);
 
-    // Check existing vote
-    const existingIndex = votes.findIndex(
-      (v) => v.voterToken === token || (ipHash && v.ipHash === ipHash)
+    // REGRA FUNDAMENTAL: APENAS UM VOTO POR NOME. O MESMO NOME NÃO PODE VOTAR MAIS DE UMA VEZ.
+    // Múltiplos votos pelo mesmo acesso / aparelho são totalmente permitidos para nomes diferentes.
+    const existingVote = votes.find(
+      (v) => v.voterName && normalizeVoterName(v.voterName) === normalized
     );
 
-    if (existingIndex !== -1) {
-      const prevVote = votes[existingIndex];
-
-      if (!contestSettings.allowRevote) {
-        return res.status(403).json({
-          success: false,
-          message: 'Você já registrou seu voto neste concurso! O regulamento permite apenas 1 voto por pessoa.',
-          votedPhotoId: prevVote.photoId,
-        });
-      }
-
-      // If revote is allowed, remove previous vote
-      const prevPhoto = photos.find((p) => p.id === prevVote.photoId);
-      if (prevPhoto && prevPhoto.votes > 0) {
-        prevPhoto.votes -= 1;
-      }
-      votes[existingIndex].photoId = photoId;
-      votes[existingIndex].voterName = voterName || votes[existingIndex].voterName;
-      votes[existingIndex].timestamp = Date.now();
-    } else {
-      // New vote
-      const newVote: VoteRecord = {
-        id: crypto.randomUUID(),
-        voterToken: token,
-        ipHash,
-        photoId,
-        voterName: voterName ? String(voterName).trim() : undefined,
-        timestamp: Date.now(),
-      };
-      votes.push(newVote);
+    if (existingVote) {
+      const prevPhoto = photos.find((p) => p.id === existingVote.photoId);
+      return res.status(403).json({
+        success: false,
+        message: `O nome "${trimmedName}" já registrou um voto neste concurso${prevPhoto ? ` (no desenho "${prevPhoto.title}")` : ''}! O regulamento permite apenas 1 voto por nome.`,
+        votedPhotoId: existingVote.photoId,
+      });
     }
+
+    // New vote: allow more than one vote per access/device
+    const newVote: VoteRecord = {
+      id: crypto.randomUUID(),
+      voterToken: crypto.randomUUID(),
+      ipHash: getClientIpHash(req),
+      photoId,
+      voterName: trimmedName,
+      timestamp: Date.now(),
+    };
+    votes.push(newVote);
 
     // Increment vote count for selected photo
     photo.votes += 1;
@@ -244,7 +238,7 @@ app.post('/api/vote', (req, res) => {
     recentVotes.unshift({
       photoId: photo.id,
       photoTitle: photo.title,
-      voterName: voterName ? String(voterName).trim() : undefined,
+      voterName: trimmedName,
       timestamp: Date.now(),
     });
     if (recentVotes.length > 20) {
@@ -260,14 +254,29 @@ app.post('/api/vote', (req, res) => {
 
     return res.json({
       success: true,
-      message: 'Voto computado com sucesso! Obrigado pela sua participação.',
+      message: `Voto de "${trimmedName}" computado com sucesso! Obrigado pela sua participação.`,
       votedPhotoId: photo.id,
+      voterName: trimmedName,
       contestData: getContestData(),
     });
   } catch (error) {
     console.error('Error voting:', error);
     return res.status(500).json({ success: false, message: 'Erro interno ao processar voto.' });
   }
+});
+
+// Admin authentication endpoint
+app.post('/api/admin/login', (req, res) => {
+  const { username, password } = req.body;
+  if (username === 'eniofds' && password === 'M@nu0412') {
+    return res.json({
+      success: true,
+      user: 'eniofds',
+      token: 'admin-auth-token-nazare',
+      message: 'Login realizado com sucesso!'
+    });
+  }
+  return res.status(401).json({ success: false, message: 'Usuário ou senha incorretos.' });
 });
 
 // Admin endpoints

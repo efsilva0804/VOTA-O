@@ -234,37 +234,24 @@ export const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
 
           {/* Action Footer */}
           <div className="pt-6 border-t border-slate-800/80 mt-6">
-            {hasVotedForThis ? (
-              <div className="w-full py-3.5 px-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-bold text-center flex items-center justify-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                Esta é a sua escolha na exposição!
-              </div>
-            ) : (
-              <button
-                onClick={() => onVoteClick(photo)}
-                disabled={isVotingClosed || (hasAlreadyVoted && !allowRevote)}
-                className={`w-full py-4 px-6 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl transition-all ${
-                  isVotingClosed
-                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
-                    : hasAlreadyVoted && !allowRevote
-                    ? 'bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-700'
-                    : 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 shadow-amber-500/25 active:scale-95'
-                }`}
-              >
-                {isVotingClosed ? (
-                  'Votação Encerrada'
-                ) : hasAlreadyVoted && !allowRevote ? (
-                  'Você já votou em outro desenho'
-                ) : hasAlreadyVoted && allowRevote ? (
-                  'Mudar meu voto para este desenho'
-                ) : (
-                  <>
-                    <Heart className="w-5 h-5 fill-slate-950" />
-                    Votar neste Desenho (1 Voto)
-                  </>
-                )}
-              </button>
-            )}
+            <button
+              onClick={() => onVoteClick(photo)}
+              disabled={isVotingClosed}
+              className={`w-full py-4 px-6 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl transition-all ${
+                isVotingClosed
+                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                  : 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 shadow-amber-500/25 active:scale-95'
+              }`}
+            >
+              {isVotingClosed ? (
+                'Votação Encerrada'
+              ) : (
+                <>
+                  <Heart className="w-5 h-5 fill-slate-950" />
+                  Votar neste Desenho (1 Voto por Nome)
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>

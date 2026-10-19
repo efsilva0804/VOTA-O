@@ -115,14 +115,6 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 print:p-0 print:m-0 print:max-w-none">
-      {/* Hidden File Input for Backup Restore */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".json"
-        onChange={handleFileChange}
-        className="hidden"
-      />
 
       {/* Persistence and Notification Banner */}
       {restoreMessage && (
@@ -150,16 +142,16 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
         </div>
       )}
 
-      {/* Header & Local Save Status (Screen View) */}
+      {/* Header & Apuração Status (Screen View) */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-800 pb-6 print:hidden">
         <div>
           <div className="flex items-center gap-2 mb-1.5">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/15 border border-emerald-500/40 text-emerald-300">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Salvo Localmente & em Disco
+              Apuração Oficial em Tempo Real
             </span>
             <span className="text-xs text-slate-400">
-              Última sincronização: <span className="text-slate-200 font-mono">{lastSavedTime || 'Automática'}</span>
+              Atualização: <span className="text-slate-200 font-mono">{lastSavedTime || 'Automática'}</span>
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-white flex items-center gap-2.5">
@@ -167,83 +159,25 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             Apuração Oficial & Resultados dos Votos
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-2xl">
-            {contest?.title || 'ESCOLHA DO DESENHO DE NOSSA SENHORA DE NAZARÉ'} • Todas as alterações e votos são gravados automaticamente para você poder pausar e continuar exatamente de onde parou.
+            {contest?.title || 'ESCOLHA DO DESENHO DE NOSSA SENHORA DE NAZARÉ'} • Classificação geral, total de votos apurados e auditoria oficial.
           </p>
         </div>
 
-        {/* Action Buttons Toolbar */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Pause / Resume Voting */}
-          {onUpdateSettings && contest && (
-            <button
-              onClick={handleToggleStatus}
-              disabled={isUpdatingStatus}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
-                contest.status === 'active'
-                  ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40'
-                  : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black shadow-lg shadow-emerald-500/20'
-              }`}
-              title={contest.status === 'active' ? 'Suspender temporariamente a votação' : 'Retomar a votação de onde parou'}
-            >
-              {contest.status === 'active' ? (
-                <>
-                  <Pause className="w-3.5 h-3.5" />
-                  <span>Pausar Votação</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-3.5 h-3.5" />
-                  <span>Retomar Votação</span>
-                </>
-              )}
-            </button>
-          )}
-
-          {/* Download JSON Backup */}
-          {onDownloadBackup && (
-            <button
-              onClick={onDownloadBackup}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-bold transition-colors"
-              title="Baixar arquivo JSON com todos os votos e configurações salvos"
-            >
-              <Download className="w-3.5 h-3.5 text-amber-400" />
-              <span>Salvar Backup (JSON)</span>
-            </button>
-          )}
-
-          {/* Restore / Continue from where it stopped */}
-          {onRestoreBackup && (
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-bold transition-colors"
-              title="Carregar arquivo JSON de backup para continuar de onde parou"
-            >
-              <Upload className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Importar Backup</span>
-            </button>
-          )}
-
-          {/* Download CSV */}
-          {onDownloadCsv && (
-            <button
-              onClick={onDownloadCsv}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-colors"
-              title="Exportar planilha de conferência para Excel ou Google Sheets"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Planilha (CSV)</span>
-            </button>
-          )}
-
-          {/* Print Report */}
-          <button
-            onClick={handlePrintReport}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs shadow-md shadow-amber-500/20 active:scale-95 transition-all"
-            title="Imprimir relatório oficial e ata com assinaturas"
-          >
-            <Printer className="w-4 h-4" />
-            <span>Imprimir Relatório (PDF)</span>
-          </button>
+        {/* Status Badge */}
+        <div className="flex items-center gap-2">
+          <span className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border ${
+            contest?.status === 'active'
+              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+              : contest?.status === 'paused'
+              ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+              : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+          }`}>
+            {contest?.status === 'active'
+              ? '● Votação Aberta'
+              : contest?.status === 'paused'
+              ? '⏸ Votação Pausada'
+              : '⏹ Votação Encerrada'}
+          </span>
         </div>
       </div>
 

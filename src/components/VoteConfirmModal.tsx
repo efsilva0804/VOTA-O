@@ -1,16 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type { PhotoEntry } from '../types/contest.ts';
-import { CheckCircle2, AlertTriangle, X, User } from 'lucide-react';
+import { normalizeVoterName } from '../hooks/useContest.ts';
+import { CheckCircle2, AlertTriangle, X, User, ShieldCheck } from 'lucide-react';
 
 interface VoteConfirmModalProps {
   photo: PhotoEntry | null;
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (photoId: string, voterName?: string) => void;
+  onConfirm: (photoId: string, voterName: string) => void;
   initialVoterName: string;
   isVoting: boolean;
-  hasAlreadyVoted: boolean;
-  allowRevote: boolean;
+  votedNames?: string[];
 }
 
 export const VoteConfirmModal: React.FC<VoteConfirmModalProps> = ({
@@ -20,16 +20,32 @@ export const VoteConfirmModal: React.FC<VoteConfirmModalProps> = ({
   onConfirm,
   initialVoterName,
   isVoting,
-  hasAlreadyVoted,
-  allowRevote,
+  votedNames = [],
 }) => {
-  const [name, setName] = useState(initialVoterName);
+  const [name, setName] = useState('');
+
+  // Clear or reset name on open so each person types their own name
+  useEffect(() => {
+    if (isOpen) {
+      setName('');
+    }
+  }, [isOpen]);
+
+  const trimmed = name.trim();
+  const normalized = useMemo(() => normalizeVoterName(trimmed), [trimmed]);
+
+  // Check if name has already voted
+  const isNameAlreadyVoted = useMemo(() => {
+    if (!trimmed || trimmed.length < 2) return false;
+    return votedNames.some((vn) => normalizeVoterName(vn) === normalized);
+  }, [trimmed, normalized, votedNames]);
 
   if (!isOpen || !photo) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onConfirm(photo.id, name.trim());
+    if (!trimmed || trimmed.length < 2 || isNameAlreadyVoted) return;
+    onConfirm(photo.id, trimmed);
   };
 
   return (
@@ -69,44 +85,54 @@ export const VoteConfirmModal: React.FC<VoteConfirmModalProps> = ({
             </p>
           </div>
 
-          {/* 1 Vote Notice */}
-          <div className={`p-3.5 rounded-2xl flex items-start gap-3 border text-xs sm:text-sm ${
-            hasAlreadyVoted && !allowRevote
-              ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-              : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
-          }`}>
-            <AlertTriangle className={`w-5 h-5 shrink-0 mt-0.5 ${
-              hasAlreadyVoted && !allowRevote ? 'text-rose-400' : 'text-amber-400'
-            }`} />
+          {/* Rule Notice */}
+          <div className="p-3.5 rounded-2xl flex items-start gap-3 border text-xs sm:text-sm bg-amber-500/10 border-amber-500/30 text-amber-200">
+            <ShieldCheck className="w-5 h-5 shrink-0 mt-0.5 text-amber-400" />
             <div>
-              <span className="font-bold block">Regra: 1 voto por pessoa</span>
-              {hasAlreadyVoted && allowRevote ? (
-                <span>Você já votou anteriormente. Confirmar agora irá <strong>transferir seu voto único</strong> para este desenho.</span>
-              ) : hasAlreadyVoted && !allowRevote ? (
-                <span>Você já registrou seu voto nesta exposição. O regulamento não permite nova votação.</span>
-              ) : (
-                <span>Você só pode votar 1 vez nesta escolha. Certifique-se de que este é o seu desenho favorito!</span>
-              )}
+              <span className="font-bold block">Regra: 1 Voto Por Nome</span>
+              <span>
+                Várias pessoas podem votar pelo mesmo celular ou computador, mas <strong>o mesmo nome não pode votar mais de uma vez</strong>.
+              </span>
             </div>
           </div>
 
-          {/* Voter Name Input (Optional) */}
+          {/* Voter Name Input (Mandatory) */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5 text-slate-400" />
-              Seu nome ou apelido (opcional)
+            <label className="block text-xs font-bold text-slate-200 mb-1.5 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-amber-400" />
+                Seu Nome Completo <span className="text-rose-400">*</span>
+              </span>
+              <span className="text-[11px] text-slate-400 font-normal">Obrigatório</span>
             </label>
             <input
               type="text"
-              placeholder="Ex: Ana Silva"
+              required
+              autoFocus
+              placeholder="Digite seu nome (Ex: Maria de Nazaré)"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              maxLength={40}
-              className="w-full px-4 py-2.5 rounded-xl bg-slate-950/80 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-amber-500 transition-colors"
+              maxLength={50}
+              className={`w-full px-4 py-3 rounded-xl bg-slate-950 border text-white placeholder-slate-500 text-sm focus:outline-none transition-colors ${
+                isNameAlreadyVoted
+                  ? 'border-rose-500 focus:border-rose-500 bg-rose-950/20'
+                  : 'border-slate-700 focus:border-amber-500'
+              }`}
             />
-            <p className="text-[11px] text-slate-400 mt-1">
-              Aparecerá no mural de votos recentes na tela do telão.
-            </p>
+
+            {/* Validation Feedback */}
+            {isNameAlreadyVoted ? (
+              <div className="mt-2 p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                <span>
+                  O nome <strong>"{trimmed}"</strong> já registrou um voto neste concurso. O mesmo nome não pode votar novamente.
+                </span>
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-400 mt-1">
+                Identificação do participante para validação do voto único no mural da apuração.
+              </p>
+            )}
           </div>
 
           {/* Actions */}
@@ -117,13 +143,13 @@ export const VoteConfirmModal: React.FC<VoteConfirmModalProps> = ({
               disabled={isVoting}
               className="flex-1 py-3 px-4 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold transition-colors"
             >
-              Voltar
+              Cancelar
             </button>
             <button
               type="submit"
-              disabled={isVoting || (hasAlreadyVoted && !allowRevote)}
+              disabled={isVoting || !trimmed || trimmed.length < 2 || isNameAlreadyVoted}
               className={`flex-1 py-3 px-4 rounded-xl flex items-center justify-center gap-2 text-sm font-bold shadow-lg transition-all ${
-                hasAlreadyVoted && !allowRevote
+                !trimmed || trimmed.length < 2 || isNameAlreadyVoted
                   ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
                   : 'bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 shadow-amber-500/25 active:scale-95'
               }`}
@@ -131,7 +157,7 @@ export const VoteConfirmModal: React.FC<VoteConfirmModalProps> = ({
               {isVoting ? (
                 <>
                   <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                  Computando...
+                  Registrando...
                 </>
               ) : (
                 <>

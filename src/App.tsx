@@ -9,7 +9,6 @@ import { ResultsView } from './components/ResultsView.tsx';
 import { PhotoDetailModal } from './components/PhotoDetailModal.tsx';
 import { VoteConfirmModal } from './components/VoteConfirmModal.tsx';
 import { QRCodeModal } from './components/QRCodeModal.tsx';
-import { ImageInsertModal } from './components/ImageInsertModal.tsx';
 import { playVoteChime } from './utils/audio.ts';
 import type { PhotoEntry } from './types/contest.ts';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
@@ -21,6 +20,7 @@ export default function App() {
     totalVotes,
     totalVoters,
     recentVotes,
+    votedNames,
     loading,
     error,
     votedPhotoId,
@@ -50,9 +50,7 @@ export default function App() {
   const [selectedPhotoForDetail, setSelectedPhotoForDetail] = useState<PhotoEntry | null>(null);
   const [photoToVote, setPhotoToVote] = useState<PhotoEntry | null>(null);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
-  const [isUploaderOpen, setIsUploaderOpen] = useState(false);
   const [targetPhotoForQr, setTargetPhotoForQr] = useState<PhotoEntry | null>(null);
-  const [targetPhotoForUpload, setTargetPhotoForUpload] = useState<PhotoEntry | null>(null);
 
   // Read URL query parameter on mount (e.g. ?mode=stage, ?mode=vote, ?mode=results, or ?voteFor=desenho-1)
   useEffect(() => {
@@ -149,6 +147,7 @@ export default function App() {
     totalVotes,
     totalVoters,
     recentVotes,
+    votedNames,
   };
 
   if (loading) {
@@ -199,10 +198,6 @@ export default function App() {
           setTargetPhotoForQr(null);
           setIsQrModalOpen(true);
         }}
-        onOpenInsertModal={() => {
-          setTargetPhotoForUpload(null);
-          setIsUploaderOpen(true);
-        }}
         hasVoted={!!votedPhotoId}
         isLiveConnected={isLiveConnected}
         totalVotes={totalVotes}
@@ -220,17 +215,9 @@ export default function App() {
               setTargetPhotoForQr(null);
               setIsQrModalOpen(true);
             }}
-            onOpenUploadModal={() => {
-              setTargetPhotoForUpload(null);
-              setIsUploaderOpen(true);
-            }}
             onOpenQrForPhoto={(photo) => {
               setTargetPhotoForQr(photo);
               setIsQrModalOpen(true);
-            }}
-            onOpenUploadForPhoto={(photo) => {
-              setTargetPhotoForUpload(photo);
-              setIsUploaderOpen(true);
             }}
           />
         )}
@@ -259,18 +246,16 @@ export default function App() {
             data={contestData}
             onAddPhoto={addPhoto}
             onDeletePhoto={deletePhoto}
+            onUpdatePhoto={updatePhoto}
             onUpdateSettings={updateSettings}
             onResetVotes={resetVotes}
             onRestoreDemo={restoreDemo}
             onSimulateVote={simulateVote}
-            onOpenUploadModal={() => {
-              setTargetPhotoForUpload(null);
-              setIsUploaderOpen(true);
-            }}
             onViewResults={() => setCurrentTab('results')}
             onRestoreBackup={restoreBackup}
             onDownloadBackup={downloadBackup}
             onDownloadCsv={downloadCsv}
+            onBackToGallery={() => setCurrentTab('gallery')}
           />
         )}
       </main>
@@ -293,7 +278,7 @@ export default function App() {
         isVotingClosed={contest?.status !== 'active'}
       />
 
-      {/* 2. Vote Confirmation Modal (1 Vote Guard) */}
+      {/* 2. Vote Confirmation Modal (1 Vote per Name) */}
       <VoteConfirmModal
         photo={photoToVote}
         isOpen={!!photoToVote}
@@ -301,8 +286,7 @@ export default function App() {
         onConfirm={handleConfirmVote}
         initialVoterName={voterName}
         isVoting={isVoting}
-        hasAlreadyVoted={!!votedPhotoId}
-        allowRevote={contest?.allowRevote || false}
+        votedNames={votedNames}
       />
 
       {/* 3. QR Code Generator Modal (General or Artwork Specific) */}
@@ -315,19 +299,6 @@ export default function App() {
         contestTitle={contest?.title || 'ESCOLHA DO DESENHO DE NOSSA SENHORA DE NAZARÉ'}
         photos={photos}
         initialPhotoId={targetPhotoForQr?.id || null}
-      />
-
-      {/* 4. Automated Image Insertion & QR Code Generation Modal */}
-      <ImageInsertModal
-        isOpen={isUploaderOpen}
-        onClose={() => {
-          setIsUploaderOpen(false);
-          setTargetPhotoForUpload(null);
-        }}
-        photos={photos}
-        onUpdatePhoto={updatePhoto}
-        onAddPhoto={addPhoto}
-        initialTargetPhotoId={targetPhotoForUpload?.id || null}
       />
     </div>
   );

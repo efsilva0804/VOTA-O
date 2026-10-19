@@ -45,6 +45,7 @@ export interface ContestData {
     voterName?: string;
     timestamp: number;
   }[];
+  votedNames?: string[];
 }
 
 export interface VoteResponse {

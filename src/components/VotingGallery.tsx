@@ -23,9 +23,7 @@ interface VotingGalleryProps {
   onSelectPhoto: (photo: PhotoEntry) => void;
   onVoteClick: (photo: PhotoEntry) => void;
   onOpenQrModal: () => void;
-  onOpenUploadModal?: () => void;
   onOpenQrForPhoto?: (photo: PhotoEntry) => void;
-  onOpenUploadForPhoto?: (photo: PhotoEntry) => void;
 }
 
 export const VotingGallery: React.FC<VotingGalleryProps> = ({
@@ -34,9 +32,7 @@ export const VotingGallery: React.FC<VotingGalleryProps> = ({
   onSelectPhoto,
   onVoteClick,
   onOpenQrModal,
-  onOpenUploadModal,
   onOpenQrForPhoto,
-  onOpenUploadForPhoto,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas');
@@ -112,43 +108,32 @@ export const VotingGallery: React.FC<VotingGalleryProps> = ({
         {/* Voting Status and 1-Vote Banner */}
         <div className="relative z-10 mt-6 pt-6 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-4">
           {votedPhoto ? (
-            <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 flex items-center gap-3 w-full sm:w-auto">
-              <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0" />
+            <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 flex items-center gap-3 w-full sm:w-auto">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
               <div>
-                <div className="font-bold text-sm">Seu voto foi registrado com sucesso!</div>
-                <div className="text-xs text-emerald-300/80">
-                  Você votou em: <strong>"{votedPhoto.title}"</strong> de {votedPhoto.photographer}.
-                  {!allowRevote && ' (Regulamento de 1 voto único finalizado).'}
+                <div className="font-bold text-xs sm:text-sm">Último voto computado com sucesso!</div>
+                <div className="text-[11px] text-emerald-300/80">
+                  Obra votada: <strong>"{votedPhoto.title}"</strong>. Outro participante pode votar agora com seu próprio nome.
                 </div>
               </div>
             </div>
           ) : (
             <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 text-slate-300 flex items-center gap-3 text-xs sm:text-sm">
               <div className="p-2 rounded-xl bg-amber-500/15 text-amber-400 shrink-0">
-                <HelpCircle className="w-4 h-4" />
+                <Sparkles className="w-4 h-4" />
               </div>
               <div>
-                <span className="font-bold text-white block">Regra do Concurso: 1 Voto Por Pessoa</span>
-                <span>Escolha com atenção. O ranking é atualizado dinamicamente em tempo real no telão!</span>
+                <span className="font-bold text-white block">Regra do Concurso: 1 Voto Por Nome</span>
+                <span className="text-slate-400 text-xs">Várias pessoas podem votar pelo mesmo aparelho. Cada pessoa só pode votar 1 vez com seu nome.</span>
               </div>
             </div>
           )}
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {onOpenUploadModal && (
-              <button
-                onClick={onOpenUploadModal}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 text-xs sm:text-sm font-black shadow-lg shadow-amber-500/25 active:scale-95 transition-all"
-              >
-                <Upload className="w-4 h-4" />
-                Inserir Imagens & Gerar QR Code
-              </button>
-            )}
-
             {/* QR Code trigger */}
             <button
               onClick={onOpenQrModal}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-semibold border border-slate-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-amber-400/10 hover:bg-amber-500/30 text-amber-300 text-xs sm:text-sm font-bold border border-amber-500/40 shadow-lg shadow-amber-500/10 active:scale-95 transition-all"
             >
               <QrCode className="w-4 h-4 text-amber-400" />
               QR Codes da Exposição
@@ -328,72 +313,43 @@ export const VotingGallery: React.FC<VotingGalleryProps> = ({
 
                   {/* Card Actions */}
                   <div className="space-y-2">
-                    {/* Secondary Utilities: QR Code and Trocar Imagem */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onOpenQrForPhoto) onOpenQrForPhoto(photo);
-                          else onOpenQrModal();
-                        }}
-                        className="py-1.5 px-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700/80 text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors"
-                        title="Ver e baixar QR Code deste desenho"
-                      >
-                        <QrCode className="w-3.5 h-3.5 text-amber-400" />
-                        QR Code
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onOpenUploadForPhoto) onOpenUploadForPhoto(photo);
-                          else if (onOpenUploadModal) onOpenUploadModal();
-                        }}
-                        className="py-1.5 px-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700/80 text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors"
-                        title="Trocar ou carregar foto deste desenho"
-                      >
-                        <Upload className="w-3.5 h-3.5 text-slate-400" />
-                        Trocar Foto
-                      </button>
-                    </div>
+                    {/* Secondary Utility: QR Code do Desenho */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onOpenQrForPhoto) onOpenQrForPhoto(photo);
+                        else onOpenQrModal();
+                      }}
+                      className="w-full py-2 px-3 rounded-xl bg-slate-950/70 hover:bg-slate-800 text-amber-300 hover:text-amber-200 border border-slate-800 hover:border-amber-500/40 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-98"
+                      title="Ver e baixar QR Code individual deste desenho"
+                    >
+                      <QrCode className="w-3.5 h-3.5 text-amber-400" />
+                      <span>QR Code do Desenho</span>
+                    </button>
 
                     {/* Vote Action Button */}
-                    {isUserChoice ? (
-                      <div className="w-full py-2.5 px-4 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-bold text-xs flex items-center justify-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        Voto Registrado
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => onVoteClick(photo)}
-                        disabled={isVotingClosed || (hasVotedAny && !allowRevote)}
-                        className={`w-full py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-                          isVotingClosed
-                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
-                            : hasVotedAny && !allowRevote
-                            ? 'bg-slate-800/80 text-slate-400 cursor-not-allowed border border-slate-700'
-                            : 'bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 shadow-md shadow-amber-500/20 active:scale-95'
-                        }`}
-                      >
-                        {isVotingClosed ? (
-                          <>
-                            <Lock className="w-3.5 h-3.5" />
-                            Votação Encerrada
-                          </>
-                        ) : hasVotedAny && !allowRevote ? (
-                          'Você já utilizou seu 1 voto'
-                        ) : hasVotedAny && allowRevote ? (
-                          'Mudar meu voto para esta'
-                        ) : (
-                          <>
-                            <Heart className="w-3.5 h-3.5 fill-slate-950" />
-                            Votar neste Desenho
-                          </>
-                        )}
-                      </button>
-                    )}
+                    <button
+                      onClick={() => onVoteClick(photo)}
+                      disabled={isVotingClosed}
+                      className={`w-full py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                        isVotingClosed
+                          ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                          : 'bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 shadow-md shadow-amber-500/20 active:scale-95'
+                      }`}
+                    >
+                      {isVotingClosed ? (
+                        <>
+                          <Lock className="w-3.5 h-3.5" />
+                          Votação Encerrada
+                        </>
+                      ) : (
+                        <>
+                          <Heart className="w-3.5 h-3.5 fill-slate-950" />
+                          Votar neste Desenho
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
               </div>

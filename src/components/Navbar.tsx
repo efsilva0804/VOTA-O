@@ -1,11 +1,10 @@
 import React from 'react';
-import { Palette, Tv, Sliders, QrCode, CheckCircle2, Sparkles, Heart, Trophy, Upload, Award } from 'lucide-react';
+import { Palette, Tv, Sliders, QrCode, CheckCircle2, Sparkles, Heart, Trophy, Upload, Award, Settings, ShieldCheck } from 'lucide-react';
 
 interface NavbarProps {
   currentTab: 'gallery' | 'stage' | 'results' | 'admin';
   onChangeTab: (tab: 'gallery' | 'stage' | 'results' | 'admin') => void;
   onOpenQrModal: () => void;
-  onOpenInsertModal?: () => void;
   hasVoted: boolean;
   isLiveConnected: boolean;
   totalVotes: number;
@@ -15,7 +14,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentTab,
   onChangeTab,
   onOpenQrModal,
-  onOpenInsertModal,
   hasVoted,
   isLiveConnected,
   totalVotes,
@@ -94,9 +92,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                   ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
                   : 'text-slate-400 hover:text-white'
               }`}
+              title="Configurações e Gestão de Imagens (Acesso Restrito: eniofds)"
             >
-              <Sliders className="w-4 h-4" />
-              <span className="hidden md:inline">Organizador</span>
+              <Settings className="w-4 h-4" />
+              <span>Configurações</span>
             </button>
           </div>
 
@@ -123,18 +122,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             )}
 
-            {/* Insert Images & Auto QR Code button */}
-            {onOpenInsertModal && (
-              <button
-                onClick={onOpenInsertModal}
-                className="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs sm:text-sm shadow-md shadow-amber-500/25 active:scale-95 transition-all"
-                title="Inserir novas fotos de desenhos e gerar QR Code automático"
-              >
-                <Upload className="w-4 h-4" />
-                <span className="hidden sm:inline">Inserir Imagens & QR Code</span>
-                <span className="sm:hidden">Inserir</span>
-              </button>
-            )}
+
 
             {/* QR Code Quick Button */}
             <button

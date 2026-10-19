@@ -6,6 +6,15 @@ import { getInitialContestData, INITIAL_PHOTOS, INITIAL_CONTEST_SETTINGS } from 
 const LOCAL_STORAGE_KEY = 'contest_state_v1';
 const VOTES_STORAGE_KEY = 'contest_votes_v1';
 
+export function normalizeVoterName(name: string): string {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
 function getStoredState(): ContestData {
   if (typeof window === 'undefined') {
     return getInitialContestData();
@@ -21,6 +30,7 @@ function getStoredState(): ContestData {
           totalVotes: parsed.totalVotes || 0,
           totalVoters: parsed.totalVoters || parsed.totalVotes || 0,
           recentVotes: parsed.recentVotes || [],
+          votedNames: parsed.votedNames || [],
         };
       }
     }
@@ -69,8 +79,7 @@ export function useContest() {
   // Fetch contest state from API (with seamless local fallback)
   const fetchContest = useCallback(async () => {
     try {
-      const token = voterTokenRef.current;
-      const res = await fetch(`/api/contest?voterToken=${encodeURIComponent(token)}`);
+      const res = await fetch('/api/contest');
       if (!res.ok) {
         throw new Error(`API returned ${res.status}`);
       }
@@ -82,18 +91,11 @@ export function useContest() {
         totalVotes: json.totalVotes ?? 0,
         totalVoters: json.totalVoters ?? 0,
         recentVotes: json.recentVotes || [],
+        votedNames: json.votedNames || [],
       };
 
       setData(serverData);
       persistLocally(serverData);
-
-      if (json.hasVoted && json.votedPhotoId) {
-        setVotedPhotoId(json.votedPhotoId);
-      }
-      if (json.voterName) {
-        setVoterNameState(json.voterName);
-        saveVoterName(json.voterName);
-      }
       setError(null);
     } catch (err) {
       // Running on Vercel without serverless or offline: continue with persistent local state
@@ -163,16 +165,21 @@ export function useContest() {
     }));
   };
 
-  // Vote for a photo (works both online and offline/Vercel)
+  // Vote for a photo (allows multiple votes per device, strictly 1 vote per name)
   const vote = async (photoId: string, name?: string): Promise<{ success: boolean; message: string }> => {
     setIsVoting(true);
     setVoteMessage(null);
-    const token = voterTokenRef.current;
-    const nameToSend = name || voterName;
-    if (nameToSend) {
-      saveVoterName(nameToSend);
-      setVoterNameState(nameToSend);
+    const nameToSend = (name || voterName || '').trim();
+
+    if (!nameToSend || nameToSend.length < 2) {
+      const msg = 'Por favor, informe seu nome completo para registrar o voto. O regulamento permite apenas 1 voto por nome.';
+      setVoteMessage({ text: msg, type: 'error' });
+      setIsVoting(false);
+      return { success: false, message: msg };
     }
+
+    setVoterNameState(nameToSend);
+    saveVoterName(nameToSend);
 
     // Check contest active status
     if (data.contest.status !== 'active') {
@@ -191,45 +198,45 @@ export function useContest() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           photoId,
-          voterToken: token,
           voterName: nameToSend,
         }),
       });
 
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success) {
-          setVotedPhotoId(photoId);
-          if (json.contestData) {
-            setData(json.contestData);
-            persistLocally(json.contestData);
-          }
-          setVoteMessage({ text: json.message || 'Voto computado com sucesso!', type: 'success' });
-          return { success: true, message: json.message };
-        } else {
-          setVoteMessage({ text: json.message || 'Falha ao votar.', type: 'error' });
-          if (json.votedPhotoId) setVotedPhotoId(json.votedPhotoId);
-          return { success: false, message: json.message };
-        }
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setVoteMessage({ text: json.message || 'Falha ao registrar voto.', type: 'error' });
+        setIsVoting(false);
+        return { success: false, message: json.message || 'Falha ao registrar voto.' };
       }
+
+      setVotedPhotoId(photoId);
+      if (json.contestData) {
+        setData(json.contestData);
+        persistLocally(json.contestData);
+      }
+      const successMsg = json.message || `Voto de "${nameToSend}" registrado com sucesso!`;
+      setVoteMessage({ text: successMsg, type: 'success' });
+      setIsVoting(false);
+      return { success: true, message: successMsg };
     } catch {
       // Server not reachable (e.g. Vercel static), process vote locally
     }
 
-    // Client-side vote processing (100% resilient on Vercel)
-    const existingIndex = localVotesRef.current.findIndex((v) => v.voterToken === token);
-    if (existingIndex !== -1 && !data.contest.allowRevote) {
-      const msg = 'Você já registrou seu voto neste concurso! O regulamento permite apenas 1 voto por pessoa.';
+    // Client-side vote processing (uniqueness enforced strictly by normalized name)
+    const normalized = normalizeVoterName(nameToSend);
+    const existingNameVote = localVotesRef.current.find(
+      (v) => v.voterName && normalizeVoterName(v.voterName) === normalized
+    );
+
+    if (existingNameVote) {
+      const targetP = data.photos.find((p) => p.id === existingNameVote.photoId);
+      const msg = `O nome "${nameToSend}" já registrou um voto neste concurso${targetP ? ` (no desenho "${targetP.title}")` : ''}! O regulamento permite apenas 1 voto por nome.`;
       setVoteMessage({ text: msg, type: 'error' });
-      setVotedPhotoId(localVotesRef.current[existingIndex].photoId);
       setIsVoting(false);
       return { success: false, message: msg };
     }
 
     const updatedPhotos = data.photos.map((p) => {
-      if (existingIndex !== -1 && p.id === localVotesRef.current[existingIndex].photoId && p.votes > 0) {
-        return { ...p, votes: p.votes - 1 };
-      }
       if (p.id === photoId) {
         return { ...p, votes: p.votes + 1 };
       }
@@ -238,20 +245,14 @@ export function useContest() {
 
     const newVoteRecord: VoteRecord = {
       id: 'vote-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6),
-      voterToken: token,
-      ipHash: 'local-' + token.slice(0, 8),
+      voterToken: 'token-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6),
+      ipHash: 'local',
       photoId,
       voterName: nameToSend,
       timestamp: Date.now(),
     };
 
-    let updatedVotesList = [...localVotesRef.current];
-    if (existingIndex !== -1) {
-      updatedVotesList[existingIndex] = newVoteRecord;
-    } else {
-      updatedVotesList.push(newVoteRecord);
-    }
-
+    const updatedVotesList = [...localVotesRef.current, newVoteRecord];
     const targetPhoto = data.photos.find((p) => p.id === photoId);
     const newRecent = [
       {
@@ -272,13 +273,14 @@ export function useContest() {
       totalVotes,
       totalVoters: updatedVotesList.length,
       recentVotes: newRecent,
+      votedNames: updatedVotesList.map((v) => v.voterName).filter(Boolean) as string[],
     };
 
     setData(updatedContestData);
     setVotedPhotoId(photoId);
     persistLocally(updatedContestData, updatedVotesList);
 
-    const successMsg = 'Voto computado com sucesso! Salvo localmente.';
+    const successMsg = `Voto de "${nameToSend}" registrado com sucesso!`;
     setVoteMessage({ text: successMsg, type: 'success' });
     setIsVoting(false);
     return { success: true, message: successMsg };
@@ -632,6 +634,7 @@ export function useContest() {
     totalVotes: data.totalVotes,
     totalVoters: data.totalVoters,
     recentVotes: data.recentVotes,
+    votedNames: data.votedNames || [],
     loading,
     error,
     votedPhotoId,
